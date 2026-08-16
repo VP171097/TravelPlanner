@@ -36,12 +36,17 @@ so once it's loaded once it keeps working **with no signal at all**.
 Pick whichever is easiest:
 
 ### Option A — GitHub Pages (recommended, easiest to reopen)
-1. In this repo: **Settings → Pages → Deploy from a branch**, choose
-   this branch and the `/ (root)` folder, save.
-2. Open the published URL on your phone.
-3. Tap your browser's **Share/menu → "Add to Home Screen"**. It now
-   opens full-screen like a native app and works offline after the
-   first load.
+Every push to `main` auto-deploys via the `Deploy to GitHub Pages`
+GitHub Actions workflow (`.github/workflows/deploy-pages.yml`) — no
+manual build step. The very first run also turns Pages on for the repo.
+1. Push to `main` (or run the workflow manually from the **Actions** tab)
+   and wait for the **Deploy to GitHub Pages** run to go green.
+2. The live URL is shown on that run's summary page (and under
+   **Settings → Pages** afterwards) — normally
+   `https://<owner>.github.io/<repo>/`.
+3. Open it on your phone, then tap your browser's **Share/menu → "Add
+   to Home Screen"**. It now opens full-screen like a native app and
+   works offline after the first load.
 
 ### Option B — Run a tiny local server
 From a computer on the same Wi-Fi as your phone:
