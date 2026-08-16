@@ -144,8 +144,19 @@
           </select>
         </label>
         <label class="field">
-          <span>Region (for cost estimate)</span>
+          <span>Region / country (for cost estimate)</span>
           <select id="f-region"></select>
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Currency</span>
+          <select id="f-currency"></select>
+        </label>
+        <label class="field">
+          <span>Hotel rooms (optional)</span>
+          <input type="number" id="f-rooms" min="1" placeholder="auto" />
         </label>
       </div>
 
@@ -167,12 +178,8 @@
 
       <div class="field-row">
         <label class="field">
-          <span>Flight est. per person ($, optional)</span>
+          <span>Flight est. per person (optional)</span>
           <input type="number" id="f-flight" min="0" placeholder="0" />
-        </label>
-        <label class="field">
-          <span>Hotel rooms (optional)</span>
-          <input type="number" id="f-rooms" min="1" placeholder="auto" />
         </label>
       </div>
 

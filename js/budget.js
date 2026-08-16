@@ -13,6 +13,11 @@ window.TP_BUDGET = (function (DATA, ITIN) {
     return found || DATA.REGION_MULTIPLIERS[0];
   }
 
+  function getCurrency(code) {
+    var found = DATA.CURRENCIES.filter(function (c) { return c.code === code; })[0];
+    return found || DATA.CURRENCIES[0]; // USD
+  }
+
   function estimate(trip) {
     var days = ITIN.computeDayCount(trip.startDate, trip.endDate);
     var nights = Math.max(days - 1, 1);
@@ -20,7 +25,12 @@ window.TP_BUDGET = (function (DATA, ITIN) {
     var rooms = Math.max(parseInt(trip.rooms, 10) || Math.ceil(travelers / 2), 1);
     var tiers = DATA.COST_TIERS[trip.budgetTier] || DATA.COST_TIERS.mid;
     var region = getRegion(trip.regionId);
-    var mult = region.mult;
+    var currency = getCurrency(trip.currency);
+    // Cost tiers are USD baselines: scale by the region's relative
+    // cost-of-living, then convert to the trip's display currency.
+    var mult = region.mult * currency.rate;
+    // Flight estimate is a direct user-entered figure (already in the
+    // trip's currency), so it isn't scaled like the cost-tier baselines.
     var flightPerPerson = parseFloat(trip.flightEstimate) || 0;
 
     var perDay = {
@@ -51,6 +61,7 @@ window.TP_BUDGET = (function (DATA, ITIN) {
       travelers: travelers,
       rooms: rooms,
       region: region,
+      currency: currency,
       rows: rows,
       flightsTotal: flightsTotal,
       subtotal: round2(subtotal),
@@ -62,5 +73,5 @@ window.TP_BUDGET = (function (DATA, ITIN) {
 
   function round2(n) { return Math.round(n * 100) / 100; }
 
-  return { estimate: estimate, getRegion: getRegion };
+  return { estimate: estimate, getRegion: getRegion, getCurrency: getCurrency };
 })(window.TP_DATA, window.TP_ITINERARY);

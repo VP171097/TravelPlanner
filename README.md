@@ -26,9 +26,12 @@ real-AI generation (see below).
   usable itinerary.
 - **Budget estimation** — per-day cost baselines (lodging, food,
   transport, activities, misc) scaled by a regional cost-of-living
-  multiplier and your traveler/room count. Adjust any field and totals
-  update instantly. Clearly labeled as a planning estimate, not live
-  pricing.
+  multiplier and your traveler/room count. Pick a specific country
+  (e.g. India) or a broad region average, and a display **currency**
+  (₹, $, €, and 20+ more) — picking a country auto-suggests its
+  currency. Adjust any field and totals update instantly. Clearly
+  labeled as a planning estimate at an approximate, static exchange
+  rate — not live pricing or live rates.
 - **Hotel & restaurant recommendations** — since the app works fully
   offline it can't fetch live listings, so it gives you the *type* of
   place to look for at your budget level (e.g. "3–4★ boutique hotel",

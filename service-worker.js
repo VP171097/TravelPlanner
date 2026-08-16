@@ -4,7 +4,7 @@
    Bump CACHE_VERSION whenever app files change to invalidate old caches.
    ============================================================ */
 
-var CACHE_VERSION = "tp-v4";
+var CACHE_VERSION = "tp-v5";
 var APP_SHELL = [
   "./",
   "./index.html",

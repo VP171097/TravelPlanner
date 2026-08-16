@@ -15,6 +15,7 @@
     var e = document.createElement(tag);
     attrs = attrs || {};
     Object.keys(attrs).forEach(function (k) {
+      if (attrs[k] === null || attrs[k] === undefined) return; // e.g. `selected: cond ? "selected" : null` — omit, don't stringify to "null"
       if (k === "class") e.className = attrs[k];
       else if (k === "html") e.innerHTML = attrs[k];
       else if (k.indexOf("on") === 0 && typeof attrs[k] === "function") e.addEventListener(k.slice(2), attrs[k]);
@@ -23,7 +24,35 @@
     (children || []).forEach(function (c) { if (c) e.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
     return e;
   }
-  function fmtMoney(n) { return "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+  function fmtMoney(n, symbol) {
+    symbol = symbol || "$";
+    return symbol + Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+  // Builds a <select> of regions/countries grouped into <optgroup>s by
+  // DATA.REGION_MULTIPLIERS' "group" field (e.g. "Asia", "Europe", ...).
+  function buildRegionSelect(id, selectedId) {
+    var sel = el("select", { id: id });
+    var groups = {};
+    var order = [];
+    DATA.REGION_MULTIPLIERS.forEach(function (r) {
+      var g = r.group || "Other";
+      if (!groups[g]) { groups[g] = []; order.push(g); }
+      groups[g].push(r);
+    });
+    order.forEach(function (g) {
+      var optgroup = el("optgroup", { label: g });
+      groups[g].forEach(function (r) {
+        optgroup.appendChild(el("option", { value: r.id, selected: r.id === selectedId ? "selected" : null }, [r.label]));
+      });
+      sel.appendChild(optgroup);
+    });
+    return sel;
+  }
+  function buildCurrencySelect(id, selectedCode) {
+    return el("select", { id: id }, DATA.CURRENCIES.map(function (c) {
+      return el("option", { value: c.code, selected: c.code === selectedCode ? "selected" : null }, [c.code + " — " + c.label + " (" + c.symbol + ")"]);
+    }));
+  }
   function fmtDate(iso) {
     try {
       var d = new Date(iso + "T00:00:00");
@@ -108,9 +137,37 @@
   // ---------- populate static form options ----------
   function populateFormStatics() {
     var regionSel = $("#f-region");
+    var regionGroups = {};
+    var regionOrder = [];
     DATA.REGION_MULTIPLIERS.forEach(function (r) {
-      regionSel.appendChild(el("option", { value: r.id }, [r.label]));
+      var g = r.group || "Other";
+      if (!regionGroups[g]) { regionGroups[g] = []; regionOrder.push(g); }
+      regionGroups[g].push(r);
     });
+    regionOrder.forEach(function (g) {
+      var optgroup = el("optgroup", { label: g });
+      regionGroups[g].forEach(function (r) {
+        optgroup.appendChild(el("option", { value: r.id }, [r.label]));
+      });
+      regionSel.appendChild(optgroup);
+    });
+    // Picking a country auto-suggests its currency (only while the
+    // currency field is still untouched, so it doesn't clobber a
+    // deliberate manual choice).
+    regionSel.addEventListener("change", function () {
+      var region = DATA.REGION_MULTIPLIERS.filter(function (r) { return r.id === regionSel.value; })[0];
+      var currencySel = $("#f-currency");
+      if (region && region.currency && currencySel && !currencySel.dataset.touched) {
+        currencySel.value = region.currency;
+      }
+    });
+
+    var currencySel = $("#f-currency");
+    DATA.CURRENCIES.forEach(function (c) {
+      currencySel.appendChild(el("option", { value: c.code }, [c.code + " — " + c.label + " (" + c.symbol + ")"]));
+    });
+    currencySel.addEventListener("change", function () { currencySel.dataset.touched = "1"; });
+
     var climateSel = $("#f-climate");
     DATA.CLIMATES.forEach(function (c) {
       climateSel.appendChild(el("option", { value: c.id }, [c.label]));
@@ -141,6 +198,8 @@
     $("#f-id").value = "";
     setSelectedInterests([]);
     $("#f-region").value = "global";
+    $("#f-currency").value = "USD";
+    delete $("#f-currency").dataset.touched;
     $("#f-climate").value = "mixed";
     $("#f-trip-type").value = "city";
     $("#trip-form-title").textContent = "New trip";
@@ -161,6 +220,8 @@
     $("#f-budget-tier").value = trip.budgetTier || "mid";
     $("#f-pace").value = trip.pace || "balanced";
     $("#f-region").value = trip.regionId || "global";
+    $("#f-currency").value = trip.currency || "USD";
+    $("#f-currency").dataset.touched = "1"; // don't let a region change silently override an existing trip's currency
     $("#f-climate").value = trip.climate || "mixed";
     $("#f-trip-type").value = trip.tripType || "city";
     $("#f-flight").value = trip.flightEstimate || "";
@@ -192,6 +253,7 @@
     trip.budgetTier = $("#f-budget-tier").value;
     trip.pace = $("#f-pace").value;
     trip.regionId = $("#f-region").value;
+    trip.currency = $("#f-currency").value || "USD";
     trip.climate = $("#f-climate").value;
     trip.tripType = $("#f-trip-type").value;
     trip.interests = getSelectedInterests();
@@ -356,9 +418,8 @@
     var tierSel = el("select", { id: "b-tier" }, ["budget", "mid", "luxury"].map(function (t) {
       return el("option", { value: t, selected: t === trip.budgetTier ? "selected" : null }, [capitalize(t)]);
     }));
-    var regionSel = el("select", { id: "b-region" }, DATA.REGION_MULTIPLIERS.map(function (r) {
-      return el("option", { value: r.id, selected: r.id === trip.regionId ? "selected" : null }, [r.label]);
-    }));
+    var regionSel = buildRegionSelect("b-region", trip.regionId || "global");
+    var currencySel = buildCurrencySelect("b-currency", est.currency.code);
     var travelersInput = el("input", { type: "number", id: "b-travelers", min: "1", value: trip.travelers || 1 });
     var roomsInput = el("input", { type: "number", id: "b-rooms", min: "1", value: est.rooms, placeholder: "auto" });
     var flightInput = el("input", { type: "number", id: "b-flight", min: "0", value: trip.flightEstimate || "", placeholder: "0" });
@@ -371,12 +432,22 @@
       el("label", { class: "field" }, [el("span", {}, ["Travelers"]), travelersInput]),
       el("label", { class: "field" }, [el("span", {}, ["Hotel rooms"]), roomsInput])
     ]));
-    controls.appendChild(el("label", { class: "field" }, [el("span", {}, ["Flight est. per person ($)"]), flightInput]));
+    controls.appendChild(el("div", { class: "field-row" }, [
+      el("label", { class: "field" }, [el("span", {}, ["Currency"]), currencySel]),
+      el("label", { class: "field" }, [el("span", {}, ["Flight est. per person (" + est.currency.symbol + ")"]), flightInput])
+    ]));
     container.appendChild(controls);
+
+    // Picking a country here auto-suggests its currency too, same as the trip form.
+    regionSel.addEventListener("change", function () {
+      var region = DATA.REGION_MULTIPLIERS.filter(function (r) { return r.id === regionSel.value; })[0];
+      if (region && region.currency) currencySel.value = region.currency;
+    });
 
     function onControlsChange() {
       trip.budgetTier = tierSel.value;
       trip.regionId = regionSel.value;
+      trip.currency = currencySel.value;
       trip.travelers = parseInt(travelersInput.value, 10) || 1;
       trip.rooms = parseInt(roomsInput.value, 10) || null;
       trip.flightEstimate = parseFloat(flightInput.value) || 0;
@@ -384,36 +455,37 @@
       renderBudget();
       renderHeader();
     }
-    [tierSel, regionSel, travelersInput, roomsInput, flightInput].forEach(function (input) {
+    [tierSel, regionSel, currencySel, travelersInput, roomsInput, flightInput].forEach(function (input) {
       input.addEventListener("change", onControlsChange);
     });
 
+    var sym = est.currency.symbol;
     var totalCard = el("div", { class: "card" });
     totalCard.appendChild(el("div", { class: "budget-total" }, [
-      el("div", { class: "amount" }, [fmtMoney(est.grandTotal)]),
+      el("div", { class: "amount" }, [fmtMoney(est.grandTotal, sym)]),
       el("div", { class: "label" }, ["Estimated total (" + est.region.label + ")"])
     ]));
     totalCard.appendChild(el("div", { class: "budget-sub" }, [
-      el("span", {}, [fmtMoney(est.perTraveler) + " / traveler"]),
-      el("span", {}, [fmtMoney(est.perDay) + " / day"])
+      el("span", {}, [fmtMoney(est.perTraveler, sym) + " / traveler"]),
+      el("span", {}, [fmtMoney(est.perDay, sym) + " / day"])
     ]));
     est.rows.forEach(function (r) {
       totalCard.appendChild(el("div", { class: "budget-row" }, [
         el("div", {}, [
           el("div", { class: "row-label" }, [r.label]),
-          el("div", { class: "row-sub" }, [r.unitLabel + " × " + fmtMoney(r.perUnit)])
+          el("div", { class: "row-sub" }, [r.unitLabel + " × " + fmtMoney(r.perUnit, sym)])
         ]),
-        el("div", { class: "row-amount" }, [fmtMoney(r.total)])
+        el("div", { class: "row-amount" }, [fmtMoney(r.total, sym)])
       ]));
     });
     if (est.flightsTotal > 0) {
       totalCard.appendChild(el("div", { class: "budget-row" }, [
         el("div", { class: "row-label" }, ["✈️ Flights (entered estimate)"]),
-        el("div", { class: "row-amount" }, [fmtMoney(est.flightsTotal)])
+        el("div", { class: "row-amount" }, [fmtMoney(est.flightsTotal, sym)])
       ]));
     }
     totalCard.appendChild(el("p", { class: "disclaimer" }, [
-      "Ballpark planning estimate from typical per-day costs × a regional cost-of-living multiplier — not live pricing. Adjust the controls above, and check real quotes for lodging/flights before booking."
+      "Ballpark planning estimate from typical per-day costs × a regional cost-of-living multiplier, converted at an approximate static exchange rate — not live pricing or live rates. Adjust the controls above, and check real quotes for lodging/flights before booking."
     ]));
     container.appendChild(totalCard);
 
@@ -430,10 +502,11 @@
 
     var est = BUDGET.estimate(trip);
     var sum = EXPENSES.summarize(trip, est);
+    var sym = est.currency.symbol;
 
     // -- add-expense form --
     var formCard = el("div", { class: "card" });
-    var amountInput = el("input", { type: "number", min: "0", step: "0.01", placeholder: "Amount ($)" });
+    var amountInput = el("input", { type: "number", min: "0", step: "0.01", placeholder: "Amount (" + sym + ")" });
     var catSelect = el("select", {}, EXPENSES.CATEGORIES.map(function (c) { return el("option", { value: c.id }, [c.label]); }));
     var noteInput = el("input", { type: "text", placeholder: "Note (optional)" });
     var dateInput = el("input", { type: "date", value: new Date().toISOString().slice(0, 10) });
@@ -460,11 +533,11 @@
     var summaryCard = el("div", { class: "card" });
     var overBudget = sum.plannedTotal !== null && sum.totalSpent > sum.plannedTotal;
     summaryCard.appendChild(el("div", { class: "expense-summary" }, [
-      el("div", { class: "amount" + (overBudget ? " over" : "") }, [fmtMoney(sum.totalSpent)]),
+      el("div", { class: "amount" + (overBudget ? " over" : "") }, [fmtMoney(sum.totalSpent, sym)]),
       el("div", { class: "label" }, ["Spent so far"]),
       sum.plannedTotal !== null ? el("div", { class: "vs-planned" }, [
-        "of " + fmtMoney(sum.plannedTotal) + " estimated · " +
-        (sum.remaining >= 0 ? fmtMoney(sum.remaining) + " remaining" : fmtMoney(Math.abs(sum.remaining)) + " over budget")
+        "of " + fmtMoney(sum.plannedTotal, sym) + " estimated · " +
+        (sum.remaining >= 0 ? fmtMoney(sum.remaining, sym) + " remaining" : fmtMoney(Math.abs(sum.remaining), sym) + " over budget")
       ]) : null
     ]));
     if (sum.pct !== null) {
@@ -483,8 +556,8 @@
           el("div", { class: "cat-line" }, [
             el("span", {}, [r.label]),
             el("span", { class: "cat-amounts" }, [
-              el("strong", {}, [fmtMoney(r.spent)]),
-              r.planned !== null ? (" / " + fmtMoney(r.planned) + " planned") : " (no budget line)"
+              el("strong", {}, [fmtMoney(r.spent, sym)]),
+              r.planned !== null ? (" / " + fmtMoney(r.planned, sym) + " planned") : " (no budget line)"
             ])
           ])
         ]);
@@ -509,7 +582,7 @@
             el("div", { class: "exp-cat" }, [EXPENSES.categoryLabel(e.category)]),
             el("div", { class: "exp-meta" }, [fmtDate(e.date) + (e.note ? " · " + e.note : "")])
           ]),
-          el("div", { class: "exp-amount" }, [fmtMoney(e.amount)]),
+          el("div", { class: "exp-amount" }, [fmtMoney(e.amount, sym)]),
           el("button", { class: "exp-del", "aria-label": "Delete expense", onclick: function () {
             trip.expenses = trip.expenses.filter(function (x) { return x.id !== e.id; });
             STORE.saveTrip(trip);
