@@ -10,6 +10,11 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # Needed once, the very first time this workflow creates the Pages
+  # site for the repo (Settings → Pages doesn't exist yet). Without
+  # it, actions/configure-pages fails with "Get Pages site failed".
+  # Safe to leave in place afterwards — it's only exercised on creation.
+  administration: write
 
 # Only one Pages deployment at a time; let in-flight runs finish rather
 # than cancelling, so a deploy is never left half-published.
