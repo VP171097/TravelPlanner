@@ -264,6 +264,7 @@
     $("#f-flight").value = trip.flightEstimate || "";
     $("#f-rooms").value = trip.rooms || "";
     $("#f-arrival-time").value = trip.arrivalTime || "";
+    $("#f-ai-instructions").value = trip.aiInstructions || "";
     setSelectedInterests(trip.interests);
     setNearbyDestinations(trip.nearbyDestinations);
     $("#trip-form-title").textContent = "Edit trip";
@@ -300,6 +301,7 @@
     trip.rooms = $("#f-rooms").value ? parseInt($("#f-rooms").value, 10) : null;
     trip.arrivalTime = $("#f-arrival-time").value || null;
     trip.nearbyDestinations = getNearbyDestinations();
+    trip.aiInstructions = $("#f-ai-instructions").value.trim();
 
     var submitBtn = $("#trip-form button[type=submit]");
     var usingAI = AI.isConfigured();
