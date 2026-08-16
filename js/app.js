@@ -53,6 +53,14 @@
       return el("option", { value: c.code, selected: c.code === selectedCode ? "selected" : null }, [c.code + " — " + c.label + " (" + c.symbol + ")"]);
     }));
   }
+  // Local calendar date, not toISOString()'s UTC conversion — for
+  // timezones ahead of UTC (e.g. IST, UTC+5:30) that silently rolls
+  // "today" back a day for part of the day.
+  function todayStr() {
+    var d = new Date();
+    var m = d.getMonth() + 1, day = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+  }
   function fmtDate(iso) {
     try {
       var d = new Date(iso + "T00:00:00");
@@ -233,7 +241,7 @@
     $("#f-trip-type").value = "city";
     $("#trip-form-title").textContent = "New trip";
     $("#btn-delete-trip").classList.add("hidden");
-    var today = new Date().toISOString().slice(0, 10);
+    var today = todayStr();
     $("#f-start").value = today;
     $("#f-end").value = today;
     $("#trip-form-overlay").classList.remove("hidden");
@@ -609,7 +617,7 @@
     var amountInput = el("input", { type: "number", min: "0", step: "0.01", placeholder: "Amount (" + sym + ")" });
     var catSelect = el("select", {}, EXPENSES.CATEGORIES.map(function (c) { return el("option", { value: c.id }, [c.label]); }));
     var noteInput = el("input", { type: "text", placeholder: "Note (optional)" });
-    var dateInput = el("input", { type: "date", value: new Date().toISOString().slice(0, 10) });
+    var dateInput = el("input", { type: "date", value: todayStr() });
     formCard.appendChild(el("div", { class: "expense-form-row" }, [amountInput, catSelect]));
     formCard.appendChild(el("div", { class: "expense-form-row", style: "margin-top:8px;" }, [dateInput, noteInput]));
     formCard.appendChild(el("button", { class: "btn btn-primary btn-block", style: "margin-top:10px;", onclick: function () {
@@ -620,7 +628,7 @@
         amount: amount,
         category: catSelect.value,
         note: noteInput.value.trim(),
-        date: dateInput.value || new Date().toISOString().slice(0, 10),
+        date: dateInput.value || todayStr(),
         createdAt: Date.now()
       });
       STORE.saveTrip(trip);

@@ -251,13 +251,21 @@ window.TP_AI = (function () {
     });
   }
 
+  // Local calendar date, not toISOString()'s UTC conversion — see the
+  // matching comment in itinerary.js for why that silently rolls dates
+  // back a day in timezones ahead of UTC (e.g. IST).
+  function localDateStr(d) {
+    var m = d.getMonth() + 1, day = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+  }
+
   function reshapeItineraryDays(trip, days) {
     var start = new Date(trip.startDate + "T00:00:00");
     return (days || []).map(function (day, i) {
       var date = new Date(start.getTime() + i * 86400000);
       return {
         dayNumber: day.dayNumber || i + 1,
-        date: date.toISOString().slice(0, 10),
+        date: localDateStr(date),
         dayTripTo: day.dayTripTo || null,
         blocks: day.blocks || [],
       };
