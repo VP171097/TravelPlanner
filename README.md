@@ -1,17 +1,29 @@
 # TravelPlanner
 
 An AI-assisted trip planner that runs **entirely in your browser** — no
-backend, no account, no API key. Everything (your trips, itineraries,
-budgets, packing lists) is stored locally on your device via
-`localStorage`, and the app is a installable Progressive Web App (PWA),
-so once it's loaded once it keeps working **with no signal at all**.
+account required, and everything (your trips, itineraries, budgets,
+packing lists, API settings) is stored **locally on your device** via
+`localStorage`. It's also an installable Progressive Web App (PWA), so
+once loaded once, planning, budget, places, and packing all keep working
+with no signal — the one thing that needs a connection is the optional
+real-AI generation (see below).
 
 ## Features
 
-- **Smart itinerary generation** — a rule-based engine builds a
-  day-by-day plan (morning / afternoon / evening) matched to the
-  interests, pace, and trip length you choose. Tap **Regenerate** any
-  time for a fresh mix.
+- **Smart itinerary generation** — two modes, same UI:
+  - **✨ AI mode (optional)** — real Claude (Haiku 4.5) generation, tailored
+    to your actual destination with specific, real-world detail. Needs a
+    one-time, ~2-minute setup (see **AI setup** below) because browsers
+    can't call Anthropic's API directly.
+  - **Built-in mode (default, always available)** — a rule-based engine
+    that builds a day-by-day plan (morning / afternoon / evening) from a
+    curated activity bank, matched to your interests/pace/trip length.
+    Zero network calls, works with no signal.
+  
+  Tap **Regenerate** any time for a fresh mix; if AI is configured it's
+  tried first and falls back to the built-in generator automatically on
+  any failure (offline, bad key, rate limit, etc.) — you always get a
+  usable itinerary.
 - **Budget estimation** — per-day cost baselines (lodging, food,
   transport, activities, misc) scaled by a regional cost-of-living
   multiplier and your traveler/room count. Adjust any field and totals
@@ -23,13 +35,26 @@ so once it's loaded once it keeps working **with no signal at all**.
   "street-food stalls"), each with one-tap links to Google Maps,
   Booking.com, TripAdvisor, or Yelp so you can pull up real, current
   options for your destination when you do have signal.
-- **Packing checklist** — auto-built from your trip's climate, trip
-  type (beach / hiking / business / ski / …), length, and traveler
-  count. Fully editable, checkboxes persist, and you can add your own
+- **Packing checklist** — same AI-with-fallback pattern as the itinerary:
+  AI mode tailors the list to your destination's real climate for your
+  actual dates; built-in mode auto-builds from your trip's climate, trip
+  type (beach / hiking / business / ski / …), length, and traveler count.
+  Fully editable either way, checkboxes persist, and you can add your own
   items.
 - **Multiple trips**, share/export an itinerary via your phone's native
   share sheet, light/dark mode, and safe-area-aware layout for
   notch/home-indicator devices.
+
+## AI setup (optional)
+
+Tap **🤖** in the header. By default the app uses its offline generator —
+you only need this if you want real Claude-generated itineraries/packing
+lists. Because browsers can't call Anthropic's API directly (only
+`platform.claude.com` is CORS-allowed), this needs one small piece of
+server-side relay that holds your API key — **[cf-worker/](cf-worker/)**
+has the full deploy guide (free Cloudflare account, ~2 minutes, one-time).
+Once deployed, paste the Worker URL into the 🤖 panel and you're done —
+the key itself never touches your browser.
 
 ## Use it on your phone
 
@@ -62,23 +87,28 @@ Copy the `TravelPlanner` folder to your phone (e.g. via a file/cloud
 app) and open `index.html` in your mobile browser. Everything works
 (planning, budget, packing, localStorage) — the only thing that won't
 register over a plain `file://` link is the offline-caching service
-worker, which isn't needed for the app to function since it doesn't
-call any network APIs to begin with.
+worker, which isn't required for the built-in generator (no network
+calls); AI mode still needs a real connection either way.
 
 ## Project structure
 
 ```
-index.html            App shell + all views
-manifest.webmanifest   PWA metadata (installable, home-screen icon)
-service-worker.js      Offline caching of the app shell
-css/styles.css          Mobile-first styling, light/dark aware
-js/data.js              Offline content: activities, cost tiers, packing lists
-js/storage.js           localStorage persistence
-js/itinerary.js         Itinerary generation engine
-js/budget.js             Budget estimator
-js/places.js             Hotel/restaurant recommendation + deep links
-js/packing.js            Packing checklist generator
-js/app.js                UI wiring / rendering
+index.html               App shell + all views
+manifest.webmanifest      PWA metadata (installable, home-screen icon)
+service-worker.js         Offline caching of the app shell
+css/styles.css             Mobile-first styling, light/dark aware
+js/data.js                 Offline content: activities, cost tiers, packing lists
+js/storage.js              localStorage persistence
+js/itinerary.js            Itinerary generation engine (built-in/offline)
+js/budget.js                Budget estimator
+js/expenses.js              Expense tracking vs. budget
+js/places.js                Hotel/restaurant recommendation + deep links
+js/packing.js               Packing checklist generator (built-in/offline)
+js/ai.js                    Optional real-AI generation via the Cloudflare Worker relay
+js/app.js                   UI wiring / rendering
+cf-worker/                 Cloudflare Worker relay for AI mode (see its README)
 ```
 
-No build step, no dependencies — open `index.html` and go.
+No build step, no dependencies for the app itself — open `index.html` and
+go. The Worker in `cf-worker/` is a one-time, separate deploy only needed
+if you want AI mode.

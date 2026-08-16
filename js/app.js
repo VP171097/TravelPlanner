@@ -3,7 +3,7 @@
    Everything below runs entirely client-side.
    ============================================================ */
 
-(function (DATA, STORE, ITIN, BUDGET, EXPENSES, PLACES, PACKING) {
+(function (DATA, STORE, ITIN, BUDGET, EXPENSES, PLACES, PACKING, AI) {
   "use strict";
 
   var state = { activeTripId: STORE.getActiveTripId(), editingTripId: null };
@@ -40,6 +40,44 @@
     t.classList.remove("hidden");
     clearTimeout(toast._h);
     toast._h = setTimeout(function () { t.classList.add("hidden"); }, 2200);
+  }
+
+  // ---------- AI generation (with automatic fallback to the offline generators) ----------
+  function withAIFallback(aiFactory, ruleFactory, label) {
+    if (AI.isConfigured()) {
+      return aiFactory()
+        .then(function (result) { return { result: result, source: "ai" }; })
+        .catch(function (err) {
+          console.warn(label + " failed, falling back to built-in generator:", err);
+          toast((label || "AI") + " failed — used the built-in generator instead");
+          return { result: ruleFactory(), source: "rule" };
+        });
+    }
+    return Promise.resolve({ result: ruleFactory(), source: "rule" });
+  }
+
+  function generateItineraryForTrip(trip) {
+    var dayCount = ITIN.computeDayCount(trip.startDate, trip.endDate);
+    return withAIFallback(
+      function () { return AI.generateItinerary(trip, dayCount); },
+      function () { return ITIN.generate(trip); },
+      "AI itinerary"
+    );
+  }
+
+  function generatePackingForTrip(trip) {
+    var dayCount = ITIN.computeDayCount(trip.startDate, trip.endDate);
+    return withAIFallback(
+      function () {
+        return AI.generatePacking(trip, dayCount).then(function (items) {
+          return items.map(function (item) {
+            return { id: PACKING.slug(item.category + "-" + item.text), category: item.category, text: item.text };
+          });
+        });
+      },
+      function () { return PACKING.generate(trip); },
+      "AI packing list"
+    );
   }
 
   // ---------- navigation ----------
@@ -139,7 +177,7 @@
   $("#btn-new-trip-2").addEventListener("click", openNewTripForm);
   $("#btn-close-form").addEventListener("click", closeTripForm);
 
-  $("#trip-form").addEventListener("submit", function (e) {
+  $("#trip-form").addEventListener("submit", async function (e) {
     e.preventDefault();
     var start = $("#f-start").value;
     var end = $("#f-end").value;
@@ -160,16 +198,29 @@
     trip.flightEstimate = $("#f-flight").value ? parseFloat($("#f-flight").value) : 0;
     trip.rooms = $("#f-rooms").value ? parseInt($("#f-rooms").value, 10) : null;
 
-    // (Re)generate content that depends on these inputs.
-    trip.itinerary = ITIN.generate(trip);
-    var freshPacking = PACKING.generate(trip);
-    trip.packing = PACKING.merge(freshPacking, trip.packing);
+    var submitBtn = $("#trip-form button[type=submit]");
+    var usingAI = AI.isConfigured();
+    submitBtn.disabled = true;
+    submitBtn.textContent = usingAI ? "✨ Asking Claude…" : "Saving…";
+
+    // (Re)generate content that depends on these inputs — tries AI first
+    // (if configured), falls back to the built-in generators automatically.
+    var itinRes, packRes;
+    try {
+      itinRes = await generateItineraryForTrip(trip);
+      trip.itinerary = itinRes.result;
+      packRes = await generatePackingForTrip(trip);
+      trip.packing = PACKING.merge(packRes.result, trip.packing);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Save trip";
+    }
 
     var saved = STORE.saveTrip(trip);
     state.activeTripId = saved.id;
     STORE.setActiveTripId(saved.id);
     closeTripForm();
-    toast("Trip saved");
+    toast(itinRes.source === "ai" ? "Trip saved — ✨ AI itinerary" : "Trip saved");
     renderAll();
     switchView("view-itinerary");
   });
@@ -254,13 +305,23 @@
     });
   }
 
-  $("#btn-regen-itinerary").addEventListener("click", function () {
+  $("#btn-regen-itinerary").addEventListener("click", async function () {
     var trip = state.activeTripId ? STORE.getTrip(state.activeTripId) : null;
     if (!trip) return;
-    trip.itinerary = ITIN.generate(trip);
-    STORE.saveTrip(trip);
-    renderItinerary();
-    toast("Itinerary regenerated");
+    var btn = $("#btn-regen-itinerary");
+    var originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = AI.isConfigured() ? "✨ Asking Claude…" : "Regenerating…";
+    try {
+      var res = await generateItineraryForTrip(trip);
+      trip.itinerary = res.result;
+      STORE.saveTrip(trip);
+      renderItinerary();
+      toast(res.source === "ai" ? "✨ AI itinerary regenerated" : "Itinerary regenerated");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
   });
 
   $("#btn-share-itinerary").addEventListener("click", function () {
@@ -543,14 +604,75 @@
     container.appendChild(addCard);
   }
 
-  $("#btn-regen-packing").addEventListener("click", function () {
+  $("#btn-regen-packing").addEventListener("click", async function () {
     var trip = state.activeTripId ? STORE.getTrip(state.activeTripId) : null;
     if (!trip) return;
-    var fresh = PACKING.generate(trip);
-    trip.packing = PACKING.merge(fresh, trip.packing);
-    STORE.saveTrip(trip);
-    renderPacking();
-    toast("Packing list rebuilt");
+    var btn = $("#btn-regen-packing");
+    var originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = AI.isConfigured() ? "✨ Asking Claude…" : "Rebuilding…";
+    try {
+      var res = await generatePackingForTrip(trip);
+      trip.packing = PACKING.merge(res.result, trip.packing);
+      STORE.saveTrip(trip);
+      renderPacking();
+      toast(res.source === "ai" ? "✨ AI packing list rebuilt" : "Packing list rebuilt");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  });
+
+  // ---------- AI settings ----------
+  function renderAiStatus() {
+    var status = $("#ai-status");
+    status.textContent = AI.isConfigured()
+      ? "✅ Configured — AI regenerate buttons will call Claude."
+      : "Not set — the app uses its built-in generator (no network needed).";
+  }
+
+  function openAiSettings() {
+    $("#f-ai-worker-url").value = AI.getWorkerUrl();
+    renderAiStatus();
+    $("#ai-settings-overlay").classList.remove("hidden");
+  }
+  function closeAiSettings() { $("#ai-settings-overlay").classList.add("hidden"); }
+
+  $("#btn-ai-settings").addEventListener("click", openAiSettings);
+  $("#btn-close-ai-settings").addEventListener("click", closeAiSettings);
+
+  $("#btn-ai-save").addEventListener("click", function () {
+    AI.setWorkerUrl($("#f-ai-worker-url").value);
+    renderAiStatus();
+    toast(AI.isConfigured() ? "AI settings saved" : "AI settings cleared");
+    closeAiSettings();
+  });
+
+  $("#btn-ai-clear").addEventListener("click", function () {
+    AI.setWorkerUrl("");
+    $("#f-ai-worker-url").value = "";
+    renderAiStatus();
+    toast("AI settings cleared — back to the built-in generator");
+  });
+
+  $("#btn-ai-test").addEventListener("click", async function () {
+    var url = $("#f-ai-worker-url").value.trim();
+    if (!url) { toast("Enter a Worker URL first"); return; }
+    AI.setWorkerUrl(url);
+    var btn = $("#btn-ai-test");
+    var original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Testing…";
+    var status = $("#ai-status");
+    try {
+      await AI.testConnection();
+      status.textContent = "✅ Connected — the Worker and API key are working.";
+    } catch (err) {
+      status.textContent = "❌ " + err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
   });
 
   // ---------- offline banner ----------
@@ -586,4 +708,4 @@
   renderAll();
   registerServiceWorker();
 
-})(window.TP_DATA, window.TP_STORE, window.TP_ITINERARY, window.TP_BUDGET, window.TP_EXPENSES, window.TP_PLACES, window.TP_PACKING);
+})(window.TP_DATA, window.TP_STORE, window.TP_ITINERARY, window.TP_BUDGET, window.TP_EXPENSES, window.TP_PLACES, window.TP_PACKING, window.TP_AI);
