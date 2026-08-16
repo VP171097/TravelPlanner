@@ -3,7 +3,7 @@
    Everything below runs entirely client-side.
    ============================================================ */
 
-(function (DATA, STORE, ITIN, BUDGET, PLACES, PACKING) {
+(function (DATA, STORE, ITIN, BUDGET, EXPENSES, PLACES, PACKING) {
   "use strict";
 
   var state = { activeTripId: STORE.getActiveTripId(), editingTripId: null };
@@ -23,7 +23,7 @@
     (children || []).forEach(function (c) { if (c) e.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
     return e;
   }
-  function fmtMoney(n) { return "$" + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+  function fmtMoney(n) { return "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
   function fmtDate(iso) {
     try {
       var d = new Date(iso + "T00:00:00");
@@ -53,7 +53,7 @@
   }
 
   function renderNoTripPrompt(viewId) {
-    var map = { "view-itinerary": "#itinerary-content", "view-budget": "#budget-content", "view-places": "#places-content", "view-packing": "#packing-content" };
+    var map = { "view-itinerary": "#itinerary-content", "view-budget": "#budget-content", "view-expenses": "#expenses-content", "view-places": "#places-content", "view-packing": "#packing-content" };
     var target = $(map[viewId]);
     if (!target) return;
     target.innerHTML = "";
@@ -355,6 +355,109 @@
       "Ballpark planning estimate from typical per-day costs × a regional cost-of-living multiplier — not live pricing. Adjust the controls above, and check real quotes for lodging/flights before booking."
     ]));
     container.appendChild(totalCard);
+
+    container.appendChild(el("button", { class: "btn btn-secondary btn-block", onclick: function () { switchView("view-expenses"); } }, ["💵 Track actual spend →"]));
+  }
+
+  // ---------- expenses ----------
+  function renderExpenses() {
+    var container = $("#expenses-content");
+    container.innerHTML = "";
+    var trip = state.activeTripId ? STORE.getTrip(state.activeTripId) : null;
+    if (!trip) { renderNoTripPrompt("view-expenses"); return; }
+    if (!trip.expenses) trip.expenses = [];
+
+    var est = BUDGET.estimate(trip);
+    var sum = EXPENSES.summarize(trip, est);
+
+    // -- add-expense form --
+    var formCard = el("div", { class: "card" });
+    var amountInput = el("input", { type: "number", min: "0", step: "0.01", placeholder: "Amount ($)" });
+    var catSelect = el("select", {}, EXPENSES.CATEGORIES.map(function (c) { return el("option", { value: c.id }, [c.label]); }));
+    var noteInput = el("input", { type: "text", placeholder: "Note (optional)" });
+    var dateInput = el("input", { type: "date", value: new Date().toISOString().slice(0, 10) });
+    formCard.appendChild(el("div", { class: "expense-form-row" }, [amountInput, catSelect]));
+    formCard.appendChild(el("div", { class: "expense-form-row", style: "margin-top:8px;" }, [dateInput, noteInput]));
+    formCard.appendChild(el("button", { class: "btn btn-primary btn-block", style: "margin-top:10px;", onclick: function () {
+      var amount = parseFloat(amountInput.value);
+      if (!amount || amount <= 0) { toast("Enter an amount"); return; }
+      trip.expenses.push({
+        id: "e_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+        amount: amount,
+        category: catSelect.value,
+        note: noteInput.value.trim(),
+        date: dateInput.value || new Date().toISOString().slice(0, 10),
+        createdAt: Date.now()
+      });
+      STORE.saveTrip(trip);
+      toast("Expense added");
+      renderExpenses();
+    } }, ["＋ Add expense"]));
+    container.appendChild(formCard);
+
+    // -- summary --
+    var summaryCard = el("div", { class: "card" });
+    var overBudget = sum.plannedTotal !== null && sum.totalSpent > sum.plannedTotal;
+    summaryCard.appendChild(el("div", { class: "expense-summary" }, [
+      el("div", { class: "amount" + (overBudget ? " over" : "") }, [fmtMoney(sum.totalSpent)]),
+      el("div", { class: "label" }, ["Spent so far"]),
+      sum.plannedTotal !== null ? el("div", { class: "vs-planned" }, [
+        "of " + fmtMoney(sum.plannedTotal) + " estimated · " +
+        (sum.remaining >= 0 ? fmtMoney(sum.remaining) + " remaining" : fmtMoney(Math.abs(sum.remaining)) + " over budget")
+      ]) : null
+    ]));
+    if (sum.pct !== null) {
+      summaryCard.appendChild(el("div", { class: "progress-track" }, [
+        el("div", { class: "progress-fill" + (overBudget ? " over" : ""), style: "width:" + Math.min(sum.pct, 100) + "%;" })
+      ]));
+    }
+    container.appendChild(summaryCard);
+
+    // -- by category --
+    if (sum.categoryRows.length) {
+      var catCard = el("div", { class: "card" }, [el("h3", { style: "font-size:13px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-bottom:4px;" }, ["By category"])]);
+      sum.categoryRows.forEach(function (r) {
+        var rowOver = r.planned !== null && r.spent > r.planned;
+        var row = el("div", { class: "expense-cat-row" }, [
+          el("div", { class: "cat-line" }, [
+            el("span", {}, [r.label]),
+            el("span", { class: "cat-amounts" }, [
+              el("strong", {}, [fmtMoney(r.spent)]),
+              r.planned !== null ? (" / " + fmtMoney(r.planned) + " planned") : " (no budget line)"
+            ])
+          ])
+        ]);
+        if (r.planned !== null) {
+          row.appendChild(el("div", { class: "progress-track" }, [
+            el("div", { class: "progress-fill" + (rowOver ? " over" : ""), style: "width:" + Math.min(r.pct, 100) + "%;" })
+          ]));
+        }
+        catCard.appendChild(row);
+      });
+      container.appendChild(catCard);
+    }
+
+    // -- expense list --
+    var listCard = el("div", { class: "card" }, [el("h3", { style: "font-size:13px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-bottom:4px;" }, ["All expenses"])]);
+    if (!sum.expenses.length) {
+      listCard.appendChild(el("p", { class: "expenses-empty" }, ["No expenses logged yet — add your first one above."]));
+    } else {
+      sum.expenses.forEach(function (e) {
+        listCard.appendChild(el("div", { class: "expense-list-item" }, [
+          el("div", { class: "exp-main" }, [
+            el("div", { class: "exp-cat" }, [EXPENSES.categoryLabel(e.category)]),
+            el("div", { class: "exp-meta" }, [fmtDate(e.date) + (e.note ? " · " + e.note : "")])
+          ]),
+          el("div", { class: "exp-amount" }, [fmtMoney(e.amount)]),
+          el("button", { class: "exp-del", "aria-label": "Delete expense", onclick: function () {
+            trip.expenses = trip.expenses.filter(function (x) { return x.id !== e.id; });
+            STORE.saveTrip(trip);
+            renderExpenses();
+          } }, ["✕"])
+        ]));
+      });
+    }
+    container.appendChild(listCard);
   }
 
   // ---------- places ----------
@@ -463,6 +566,7 @@
     renderTripList();
     renderItinerary();
     renderBudget();
+    renderExpenses();
     renderPlaces();
     renderPacking();
   }
@@ -482,4 +586,4 @@
   renderAll();
   registerServiceWorker();
 
-})(window.TP_DATA, window.TP_STORE, window.TP_ITINERARY, window.TP_BUDGET, window.TP_PLACES, window.TP_PACKING);
+})(window.TP_DATA, window.TP_STORE, window.TP_ITINERARY, window.TP_BUDGET, window.TP_EXPENSES, window.TP_PLACES, window.TP_PACKING);

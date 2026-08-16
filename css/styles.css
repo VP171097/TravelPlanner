@@ -196,6 +196,31 @@ h1, h2, h3 { margin: 0; }
 .budget-controls .field { margin-bottom: 10px; }
 .disclaimer { font-size: 11px; color: var(--text-muted); margin-top: 10px; line-height: 1.5; }
 
+/* Expenses */
+.expense-summary { text-align: center; padding: 18px 0 10px; }
+.expense-summary .amount { font-size: 34px; font-weight: 800; color: var(--brand); }
+.expense-summary .amount.over { color: var(--danger); }
+.expense-summary .label { font-size: 13px; color: var(--text-muted); }
+.expense-summary .vs-planned { margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+.progress-track { background: var(--surface-2); border-radius: 999px; height: 8px; overflow: hidden; margin-top: 12px; }
+.progress-fill { height: 100%; background: var(--brand); border-radius: 999px; }
+.progress-fill.over { background: var(--danger); }
+.expense-cat-row { padding: 10px 0; border-top: 1px solid var(--border); }
+.expense-cat-row:first-child { border-top: none; }
+.expense-cat-row .cat-line { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+.expense-cat-row .cat-line .cat-amounts { color: var(--text-muted); }
+.expense-cat-row .cat-line .cat-amounts strong { color: var(--text); font-weight: 700; }
+.expense-form-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.expense-form-row input, .expense-form-row select { flex: 1; min-width: 100px; }
+.expense-list-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
+.expense-list-item:first-child { border-top: none; }
+.expense-list-item .exp-main { min-width: 0; }
+.expense-list-item .exp-cat { font-size: 13px; font-weight: 600; }
+.expense-list-item .exp-meta { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.expense-list-item .exp-amount { font-weight: 700; white-space: nowrap; }
+.expense-list-item .exp-del { background: none; border: none; color: var(--text-muted); font-size: 16px; padding: 4px; flex-shrink: 0; }
+.expenses-empty { color: var(--text-muted); font-size: 13px; padding: 12px 0; text-align: center; }
+
 /* Places */
 .place-card h3 { font-size: 15px; margin-bottom: 6px; }
 .place-card ul { margin: 6px 0 10px; padding-left: 18px; font-size: 13px; color: var(--text-muted); }

@@ -4,7 +4,7 @@
    Bump CACHE_VERSION whenever app files change to invalidate old caches.
    ============================================================ */
 
-var CACHE_VERSION = "tp-v1";
+var CACHE_VERSION = "tp-v2";
 var APP_SHELL = [
   "./",
   "./index.html",
@@ -14,6 +14,7 @@ var APP_SHELL = [
   "./js/storage.js",
   "./js/itinerary.js",
   "./js/budget.js",
+  "./js/expenses.js",
   "./js/places.js",
   "./js/packing.js",
   "./js/app.js",
