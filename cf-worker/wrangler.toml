@@ -1,0 +1,10 @@
+name = "travelplanner-ai-proxy"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+# Non-secret config. Comma-separated list of browser origins allowed to call
+# this Worker — set this to wherever the PWA is actually hosted (your
+# GitHub Pages URL). ANTHROPIC_API_KEY is a *secret* and is NOT set here —
+# see README.md in this folder for the `wrangler secret put` command.
+[vars]
+ALLOWED_ORIGINS = "https://vp171097.github.io"
