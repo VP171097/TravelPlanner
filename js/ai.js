@@ -143,6 +143,9 @@ window.TP_AI = (function () {
     if (trip.nearbyDestinations && trip.nearbyDestinations.length) {
       lines.push("Nearby destinations to weave in as day trips (one per extra day, in order): " + trip.nearbyDestinations.join(", "));
     }
+    if (trip.aiInstructions) {
+      lines.push("Traveler's own instructions/plan (follow these — they take priority over your own defaults where they conflict): " + trip.aiInstructions);
+    }
     return lines.join("\n");
   }
 
@@ -236,6 +239,9 @@ window.TP_AI = (function () {
       "(in the order given, starting day 2) to a day trip there — set that day's dayTripTo to the " +
       "destination's name and make all of that day's blocks genuinely about that place, using your " +
       "own real knowledge of it. Set dayTripTo to \"\" on days that aren't a nearby-destination day trip. " +
+      "If the traveler gave their own instructions/plan, actively incorporate them — specific " +
+      "must-see stops, ordering preferences, dietary/mobility notes, pacing tweaks, anything they " +
+      "asked for — rather than just defaulting to your own picks. " +
       "Output must match the provided JSON schema exactly.";
     var user =
       tripContext(trip) +
@@ -308,7 +314,9 @@ window.TP_AI = (function () {
       "destination's real climate for the given dates, the trip type, and trip length. " +
       "Cover documents, electronics, health/toiletries, clothing (with realistic quantities " +
       "for a " + dayCount + "-day trip), and any trip-type-specific gear. Avoid generic filler; " +
-      "every item should be genuinely relevant to this trip. " +
+      "every item should be genuinely relevant to this trip. If the traveler gave their own " +
+      "instructions/plan, factor in anything relevant (dietary/health needs, planned activities, " +
+      "who they're traveling with, etc.). " +
       "Output must match the provided JSON schema exactly.";
     var user = tripContext(trip) + "\n\nTrip length: " + dayCount + " day(s).";
     var shapeHint =

@@ -14,7 +14,11 @@ real-AI generation (see below).
   - **✨ AI mode (optional)** — real Gemini (3.7 Flash) generation, tailored
     to your actual destination with specific, real-world detail. Needs a
     one-time, ~1-minute setup (see **AI setup** below) — paste in a free
-    Gemini API key, no server or deploy step required.
+    Gemini API key, no server or deploy step required. The trip form has
+    an **AI instructions** box — give it your own plan or preferences
+    ("I already want to see the Red Fort on day 1", vegetarian, traveling
+    with a toddler, …) and it's woven into the generated itinerary and
+    packing list.
   - **Built-in mode (default, always available)** — a rule-based engine
     that builds a day-by-day plan (morning / afternoon / evening) from a
     curated activity bank, matched to your interests/pace/trip length.
