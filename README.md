@@ -11,10 +11,10 @@ real-AI generation (see below).
 ## Features
 
 - **Smart itinerary generation** — two modes, same UI:
-  - **✨ AI mode (optional)** — real Claude (Haiku 4.5) generation, tailored
+  - **✨ AI mode (optional)** — real Gemini (2.5 Flash) generation, tailored
     to your actual destination with specific, real-world detail. Needs a
-    one-time, ~2-minute setup (see **AI setup** below) because browsers
-    can't call Anthropic's API directly.
+    one-time, ~1-minute setup (see **AI setup** below) — paste in a free
+    Gemini API key, no server or deploy step required.
   - **Built-in mode (default, always available)** — a rule-based engine
     that builds a day-by-day plan (morning / afternoon / evening) from a
     curated activity bank, matched to your interests/pace/trip length.
@@ -48,13 +48,20 @@ real-AI generation (see below).
 ## AI setup (optional)
 
 Tap **🤖** in the header. By default the app uses its offline generator —
-you only need this if you want real Claude-generated itineraries/packing
-lists. Because browsers can't call Anthropic's API directly (only
-`platform.claude.com` is CORS-allowed), this needs one small piece of
-server-side relay that holds your API key — **[cf-worker/](cf-worker/)**
-has the full deploy guide (free Cloudflare account, ~2 minutes, one-time).
-Once deployed, paste the Worker URL into the 🤖 panel and you're done —
-the key itself never touches your browser.
+you only need this if you want real Gemini-generated itineraries/packing
+lists. Google's Generative Language API allows direct browser calls (its
+CORS policy isn't restricted like Anthropic's), so there's no server or
+deploy step:
+
+1. Get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+2. Recommended: click into the key's settings in AI Studio and add a
+   **website restriction** limiting it to your app's URL (e.g.
+   `https://<owner>.github.io/*`), so a copied key can't be used elsewhere.
+3. Paste the key into the 🤖 panel and tap **Save**. It's stored only in
+   this browser's `localStorage`.
+
+Gemini 2.5 Flash has a generous free tier, so this typically costs
+nothing for normal use.
 
 ## Use it on your phone
 
@@ -104,11 +111,9 @@ js/budget.js                Budget estimator
 js/expenses.js              Expense tracking vs. budget
 js/places.js                Hotel/restaurant recommendation + deep links
 js/packing.js               Packing checklist generator (built-in/offline)
-js/ai.js                    Optional real-AI generation via the Cloudflare Worker relay
+js/ai.js                    Optional real-AI generation, calling the Gemini API directly
 js/app.js                   UI wiring / rendering
-cf-worker/                 Cloudflare Worker relay for AI mode (see its README)
 ```
 
-No build step, no dependencies for the app itself — open `index.html` and
-go. The Worker in `cf-worker/` is a one-time, separate deploy only needed
-if you want AI mode.
+No build step, no dependencies. Open `index.html` and go — AI mode just
+needs a Gemini API key pasted into the 🤖 panel, no separate deploy.
