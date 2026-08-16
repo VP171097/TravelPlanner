@@ -11,7 +11,7 @@ real-AI generation (see below).
 ## Features
 
 - **Smart itinerary generation** — two modes, same UI:
-  - **✨ AI mode (optional)** — real Gemini (2.5 Flash) generation, tailored
+  - **✨ AI mode (optional)** — real Gemini (3.7 Flash) generation, tailored
     to your actual destination with specific, real-world detail. Needs a
     one-time, ~1-minute setup (see **AI setup** below) — paste in a free
     Gemini API key, no server or deploy step required.
@@ -60,7 +60,7 @@ deploy step:
 3. Paste the key into the 🤖 panel and tap **Save**. It's stored only in
    this browser's `localStorage`.
 
-Gemini 2.5 Flash has a generous free tier, so this typically costs
+Gemini 3.7 Flash has a generous free tier, so this typically costs
 nothing for normal use.
 
 ## Use it on your phone
