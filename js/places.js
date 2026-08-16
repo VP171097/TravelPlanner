@@ -12,12 +12,29 @@ window.TP_PLACES = (function (DATA) {
 
   function encode(q) { return encodeURIComponent(q); }
 
+  // Goibibo's hotel-search pages live at a stable city-slug URL. We don't
+  // guess at a specific property's page (its real URL isn't derivable from
+  // the name), so for a *specific* named hotel we route through a Google
+  // search instead — always a valid link, and it reliably surfaces the
+  // real Goibibo listing if one exists, rather than risking a broken guess.
+  function goibiboCitySlug(destination) {
+    var city = (destination || "").split(",")[0].trim().toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-");
+    return city || "india";
+  }
+  function goibiboCityLink(destination) {
+    return "https://www.goibibo.com/hotels/find-hotels-in-" + encode(goibiboCitySlug(destination)) + "/";
+  }
+  function goibiboHotelLink(hotelName, destination) {
+    return "https://www.google.com/search?q=" + encode(hotelName + " " + destination + " Goibibo");
+  }
+
   function searchLinks(destination, kind, extra) {
     var base = destination + (extra ? " " + extra : "");
     if (kind === "hotel") {
       return [
         { label: "Google Maps", url: "https://www.google.com/maps/search/?api=1&query=" + encode("hotels in " + base) },
         { label: "Booking.com", url: "https://www.booking.com/searchresults.html?ss=" + encode(destination) },
+        { label: "Goibibo", url: goibiboCityLink(destination) },
         { label: "TripAdvisor", url: "https://www.tripadvisor.com/Search?q=" + encode("hotels " + base) }
       ];
     }
@@ -53,5 +70,5 @@ window.TP_PLACES = (function (DATA) {
     return { destination: destination, hotels: hotels, restaurants: restaurants };
   }
 
-  return { recommend: recommend };
+  return { recommend: recommend, goibiboCityLink: goibiboCityLink, goibiboHotelLink: goibiboHotelLink };
 })(window.TP_DATA);

@@ -191,12 +191,41 @@
     $all("#f-interests .chip").forEach(function (c) { c.classList.toggle("selected", ids.indexOf(c.dataset.id) !== -1); });
   }
 
+  // ---------- nearby-destinations chip input (freeform add/remove) ----------
+  function getNearbyDestinations() {
+    return $all("#f-nearby-chips .chip").map(function (c) { return c.dataset.name; });
+  }
+  function setNearbyDestinations(names) {
+    var container = $("#f-nearby-chips");
+    container.innerHTML = "";
+    (names || []).forEach(function (name) { addNearbyChip(name); });
+  }
+  function addNearbyChip(name) {
+    name = (name || "").trim();
+    if (!name) return;
+    if (getNearbyDestinations().indexOf(name) !== -1) return; // no dupes
+    var chip = el("button", { type: "button", class: "chip", "data-name": name, title: "Tap to remove" }, [name + " ✕"]);
+    chip.addEventListener("click", function () { chip.remove(); });
+    $("#f-nearby-chips").appendChild(chip);
+  }
+  $("#btn-add-nearby").addEventListener("click", function () {
+    var input = $("#f-nearby-input");
+    addNearbyChip(input.value);
+    input.value = "";
+    input.focus();
+  });
+  $("#f-nearby-input").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); $("#btn-add-nearby").click(); }
+  });
+
   // ---------- trip form (create/edit) ----------
   function openNewTripForm() {
     state.editingTripId = null;
     $("#trip-form").reset();
     $("#f-id").value = "";
     setSelectedInterests([]);
+    setNearbyDestinations([]);
+    $("#f-arrival-time").value = "";
     $("#f-region").value = "global";
     $("#f-currency").value = "USD";
     delete $("#f-currency").dataset.touched;
@@ -226,7 +255,9 @@
     $("#f-trip-type").value = trip.tripType || "city";
     $("#f-flight").value = trip.flightEstimate || "";
     $("#f-rooms").value = trip.rooms || "";
+    $("#f-arrival-time").value = trip.arrivalTime || "";
     setSelectedInterests(trip.interests);
+    setNearbyDestinations(trip.nearbyDestinations);
     $("#trip-form-title").textContent = "Edit trip";
     $("#btn-delete-trip").classList.remove("hidden");
     $("#trip-form-overlay").classList.remove("hidden");
@@ -259,6 +290,8 @@
     trip.interests = getSelectedInterests();
     trip.flightEstimate = $("#f-flight").value ? parseFloat($("#f-flight").value) : 0;
     trip.rooms = $("#f-rooms").value ? parseInt($("#f-rooms").value, 10) : null;
+    trip.arrivalTime = $("#f-arrival-time").value || null;
+    trip.nearbyDestinations = getNearbyDestinations();
 
     var submitBtn = $("#trip-form button[type=submit]");
     var usingAI = AI.isConfigured();
@@ -342,6 +375,10 @@
   }
 
   // ---------- itinerary ----------
+  function blockClockTime(block) {
+    return block.startTime || ITIN.SLOT_DEFAULT_TIMES[block.time] || "09:00";
+  }
+
   function renderItinerary() {
     var container = $("#itinerary-content");
     container.innerHTML = "";
@@ -349,13 +386,25 @@
     if (!trip) { renderNoTripPrompt("view-itinerary"); return; }
     if (!trip.itinerary || !trip.itinerary.length) trip.itinerary = ITIN.generate(trip);
 
+    if (trip.arrivalTime) {
+      container.appendChild(el("p", { class: "disclaimer" }, [
+        "Day 1 is scheduled around your " + trip.arrivalTime + " arrival. Every block's time is editable below — nudge anything to fit your actual plans."
+      ]));
+    }
+
     trip.itinerary.forEach(function (day) {
+      var titleParts = ["Day " + day.dayNumber + " · " + fmtDateShort(day.date)];
       var dayCard = el("div", { class: "card day-card" }, [
-        el("h3", {}, ["Day " + day.dayNumber + " · " + fmtDateShort(day.date)])
+        el("h3", {}, titleParts.concat(day.dayTripTo ? [el("span", { class: "tag-pill", style: "margin-left:8px;" }, ["📍 Day trip: " + day.dayTripTo])] : []))
       ]);
       day.blocks.forEach(function (block) {
+        var timeInput = el("input", { type: "time", value: blockClockTime(block), class: "block-time-input" });
+        timeInput.addEventListener("change", function () {
+          block.startTime = timeInput.value;
+          STORE.saveTrip(trip);
+        });
         dayCard.appendChild(el("div", { class: "block-row" }, [
-          el("div", { class: "block-time" }, [block.time]),
+          el("div", { class: "block-time" }, [timeInput]),
           el("div", { class: "block-body" }, [
             el("strong", {}, [block.title]),
             el("p", {}, [block.desc]),
@@ -601,6 +650,8 @@
     var trip = state.activeTripId ? STORE.getTrip(state.activeTripId) : null;
     if (!trip) { renderNoTripPrompt("view-places"); return; }
 
+    container.appendChild(renderHotelFinder(trip));
+
     var rec = PLACES.recommend(trip);
     container.appendChild(el("p", { class: "disclaimer" }, [
       "These are typical place profiles for your budget level, not live listings — tap a link to pull up real, current options near " + rec.destination + "."
@@ -611,6 +662,91 @@
 
     container.appendChild(el("div", { class: "places-subhead" }, ["Restaurant types to look for"]));
     rec.restaurants.forEach(function (r) { container.appendChild(renderPlaceCard(r)); });
+  }
+
+  // AI-only: real, specifically-named hotels near a landmark, sorted
+  // ascending by distance, within a price band — the offline generator
+  // has no way to know actual named properties or their real distances,
+  // so this needs AI mode configured.
+  function renderHotelFinder(trip) {
+    var card = el("div", { class: "card" });
+    card.appendChild(el("div", { class: "places-subhead", style: "margin-top:0;" }, ["🔎 Find specific hotels"]));
+
+    if (!AI.isConfigured()) {
+      card.appendChild(el("p", { class: "disclaimer" }, [
+        "Real, named hotel suggestions — sorted by distance from a landmark, filtered by your price range — need AI mode. The built-in generator below only knows generic hotel " +
+        "types, not actual properties."
+      ]));
+      card.appendChild(el("button", { class: "btn btn-secondary btn-sm", onclick: openAiSettings }, ["🤖 Set up AI"]));
+      return card;
+    }
+
+    var est = BUDGET.estimate(trip);
+    var sym = est.currency.symbol;
+    var tierLodging = (DATA.COST_TIERS[trip.budgetTier] || DATA.COST_TIERS.mid).lodging;
+    var defaultCenter = tierLodging * est.region.mult * est.currency.rate;
+
+    var hs = trip.hotelSearch;
+    var landmarkInput = el("input", { type: "text", placeholder: "Landmark or area, e.g. Taj Mahal", value: (hs && hs.landmark) || "" });
+    var minInput = el("input", { type: "number", min: "0", placeholder: "Min " + sym + "/night", value: (hs && hs.minPrice) || "" });
+    var maxInput = el("input", { type: "number", min: "0", placeholder: "Max " + sym + "/night", value: (hs && hs.maxPrice) || "" });
+    var findBtn = el("button", { class: "btn btn-primary btn-block", style: "margin-top:10px;" }, ["Find hotels"]);
+
+    card.appendChild(el("div", { class: "field-row" }, [landmarkInput]));
+    card.appendChild(el("div", { class: "field-row", style: "margin-top:8px;" }, [minInput, maxInput]));
+    card.appendChild(findBtn);
+
+    var resultsWrap = el("div", { style: "margin-top:12px;" });
+    card.appendChild(resultsWrap);
+
+    function renderResults() {
+      resultsWrap.innerHTML = "";
+      var current = trip.hotelSearch;
+      if (!current || !current.results || !current.results.length) return;
+      resultsWrap.appendChild(el("p", { class: "disclaimer" }, [
+        "AI-suggested from the model's own knowledge, not a live lookup — confirm price/availability before booking. Sorted by distance from \"" + current.landmark + "\"."
+      ]));
+      current.results.forEach(function (h) {
+        resultsWrap.appendChild(el("div", { class: "card place-card" }, [
+          el("h3", {}, [h.name]),
+          el("p", { class: "row-sub" }, ["~" + h.distanceKm + " km from " + current.landmark]),
+          el("p", {}, [h.desc]),
+          el("p", {}, [fmtMoney(h.priceLow, sym) + "–" + fmtMoney(h.priceHigh, sym) + " / night"]),
+          el("div", { class: "place-links" }, [
+            el("a", { class: "link-chip", href: PLACES.goibiboHotelLink(h.name, trip.destination), target: "_blank", rel: "noopener" }, ["Goibibo ↗"]),
+            el("a", { class: "link-chip", href: "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(h.name + " " + trip.destination), target: "_blank", rel: "noopener" }, ["Maps ↗"])
+          ])
+        ]));
+      });
+    }
+    renderResults();
+
+    findBtn.addEventListener("click", async function () {
+      var landmark = landmarkInput.value.trim();
+      if (!landmark) { toast("Enter a landmark or area first"); return; }
+      var minPrice = minInput.value ? parseFloat(minInput.value) : Math.round(defaultCenter * 0.6);
+      var maxPrice = maxInput.value ? parseFloat(maxInput.value) : Math.round(defaultCenter * 1.6);
+      if (maxPrice < minPrice) { toast("Max price should be more than min"); return; }
+
+      findBtn.disabled = true;
+      var originalLabel = findBtn.textContent;
+      findBtn.textContent = "✨ Asking Gemini…";
+      try {
+        var hotels = await AI.findHotels(trip, landmark, minPrice, maxPrice, est.currency.code);
+        trip.hotelSearch = { landmark: landmark, minPrice: minPrice, maxPrice: maxPrice, results: hotels, generatedAt: Date.now() };
+        STORE.saveTrip(trip);
+        renderResults();
+        toast(hotels.length ? "Found " + hotels.length + " hotels" : "No matches — try a wider price range");
+      } catch (err) {
+        console.warn("Hotel search failed:", err);
+        toast("Hotel search failed: " + err.message);
+      } finally {
+        findBtn.disabled = false;
+        findBtn.textContent = originalLabel;
+      }
+    });
+
+    return card;
   }
 
   function renderPlaceCard(item) {
