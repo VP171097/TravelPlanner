@@ -15,6 +15,7 @@
     var e = document.createElement(tag);
     attrs = attrs || {};
     Object.keys(attrs).forEach(function (k) {
+      if (attrs[k] === null || attrs[k] === undefined) return; // e.g. `selected: cond ? "selected" : null` — omit, don't stringify to "null"
       if (k === "class") e.className = attrs[k];
       else if (k === "html") e.innerHTML = attrs[k];
       else if (k.indexOf("on") === 0 && typeof attrs[k] === "function") e.addEventListener(k.slice(2), attrs[k]);
@@ -23,7 +24,35 @@
     (children || []).forEach(function (c) { if (c) e.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
     return e;
   }
-  function fmtMoney(n) { return "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+  function fmtMoney(n, symbol) {
+    symbol = symbol || "$";
+    return symbol + Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+  // Builds a <select> of regions/countries grouped into <optgroup>s by
+  // DATA.REGION_MULTIPLIERS' "group" field (e.g. "Asia", "Europe", ...).
+  function buildRegionSelect(id, selectedId) {
+    var sel = el("select", { id: id });
+    var groups = {};
+    var order = [];
+    DATA.REGION_MULTIPLIERS.forEach(function (r) {
+      var g = r.group || "Other";
+      if (!groups[g]) { groups[g] = []; order.push(g); }
+      groups[g].push(r);
+    });
+    order.forEach(function (g) {
+      var optgroup = el("optgroup", { label: g });
+      groups[g].forEach(function (r) {
+        optgroup.appendChild(el("option", { value: r.id, selected: r.id === selectedId ? "selected" : null }, [r.label]));
+      });
+      sel.appendChild(optgroup);
+    });
+    return sel;
+  }
+  function buildCurrencySelect(id, selectedCode) {
+    return el("select", { id: id }, DATA.CURRENCIES.map(function (c) {
+      return el("option", { value: c.code, selected: c.code === selectedCode ? "selected" : null }, [c.code + " — " + c.label + " (" + c.symbol + ")"]);
+    }));
+  }
   function fmtDate(iso) {
     try {
       var d = new Date(iso + "T00:00:00");
@@ -108,9 +137,37 @@
   // ---------- populate static form options ----------
   function populateFormStatics() {
     var regionSel = $("#f-region");
+    var regionGroups = {};
+    var regionOrder = [];
     DATA.REGION_MULTIPLIERS.forEach(function (r) {
-      regionSel.appendChild(el("option", { value: r.id }, [r.label]));
+      var g = r.group || "Other";
+      if (!regionGroups[g]) { regionGroups[g] = []; regionOrder.push(g); }
+      regionGroups[g].push(r);
     });
+    regionOrder.forEach(function (g) {
+      var optgroup = el("optgroup", { label: g });
+      regionGroups[g].forEach(function (r) {
+        optgroup.appendChild(el("option", { value: r.id }, [r.label]));
+      });
+      regionSel.appendChild(optgroup);
+    });
+    // Picking a country auto-suggests its currency (only while the
+    // currency field is still untouched, so it doesn't clobber a
+    // deliberate manual choice).
+    regionSel.addEventListener("change", function () {
+      var region = DATA.REGION_MULTIPLIERS.filter(function (r) { return r.id === regionSel.value; })[0];
+      var currencySel = $("#f-currency");
+      if (region && region.currency && currencySel && !currencySel.dataset.touched) {
+        currencySel.value = region.currency;
+      }
+    });
+
+    var currencySel = $("#f-currency");
+    DATA.CURRENCIES.forEach(function (c) {
+      currencySel.appendChild(el("option", { value: c.code }, [c.code + " — " + c.label + " (" + c.symbol + ")"]));
+    });
+    currencySel.addEventListener("change", function () { currencySel.dataset.touched = "1"; });
+
     var climateSel = $("#f-climate");
     DATA.CLIMATES.forEach(function (c) {
       climateSel.appendChild(el("option", { value: c.id }, [c.label]));
@@ -134,13 +191,44 @@
     $all("#f-interests .chip").forEach(function (c) { c.classList.toggle("selected", ids.indexOf(c.dataset.id) !== -1); });
   }
 
+  // ---------- nearby-destinations chip input (freeform add/remove) ----------
+  function getNearbyDestinations() {
+    return $all("#f-nearby-chips .chip").map(function (c) { return c.dataset.name; });
+  }
+  function setNearbyDestinations(names) {
+    var container = $("#f-nearby-chips");
+    container.innerHTML = "";
+    (names || []).forEach(function (name) { addNearbyChip(name); });
+  }
+  function addNearbyChip(name) {
+    name = (name || "").trim();
+    if (!name) return;
+    if (getNearbyDestinations().indexOf(name) !== -1) return; // no dupes
+    var chip = el("button", { type: "button", class: "chip", "data-name": name, title: "Tap to remove" }, [name + " ✕"]);
+    chip.addEventListener("click", function () { chip.remove(); });
+    $("#f-nearby-chips").appendChild(chip);
+  }
+  $("#btn-add-nearby").addEventListener("click", function () {
+    var input = $("#f-nearby-input");
+    addNearbyChip(input.value);
+    input.value = "";
+    input.focus();
+  });
+  $("#f-nearby-input").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); $("#btn-add-nearby").click(); }
+  });
+
   // ---------- trip form (create/edit) ----------
   function openNewTripForm() {
     state.editingTripId = null;
     $("#trip-form").reset();
     $("#f-id").value = "";
     setSelectedInterests([]);
+    setNearbyDestinations([]);
+    $("#f-arrival-time").value = "";
     $("#f-region").value = "global";
+    $("#f-currency").value = "USD";
+    delete $("#f-currency").dataset.touched;
     $("#f-climate").value = "mixed";
     $("#f-trip-type").value = "city";
     $("#trip-form-title").textContent = "New trip";
@@ -161,11 +249,15 @@
     $("#f-budget-tier").value = trip.budgetTier || "mid";
     $("#f-pace").value = trip.pace || "balanced";
     $("#f-region").value = trip.regionId || "global";
+    $("#f-currency").value = trip.currency || "USD";
+    $("#f-currency").dataset.touched = "1"; // don't let a region change silently override an existing trip's currency
     $("#f-climate").value = trip.climate || "mixed";
     $("#f-trip-type").value = trip.tripType || "city";
     $("#f-flight").value = trip.flightEstimate || "";
     $("#f-rooms").value = trip.rooms || "";
+    $("#f-arrival-time").value = trip.arrivalTime || "";
     setSelectedInterests(trip.interests);
+    setNearbyDestinations(trip.nearbyDestinations);
     $("#trip-form-title").textContent = "Edit trip";
     $("#btn-delete-trip").classList.remove("hidden");
     $("#trip-form-overlay").classList.remove("hidden");
@@ -192,11 +284,14 @@
     trip.budgetTier = $("#f-budget-tier").value;
     trip.pace = $("#f-pace").value;
     trip.regionId = $("#f-region").value;
+    trip.currency = $("#f-currency").value || "USD";
     trip.climate = $("#f-climate").value;
     trip.tripType = $("#f-trip-type").value;
     trip.interests = getSelectedInterests();
     trip.flightEstimate = $("#f-flight").value ? parseFloat($("#f-flight").value) : 0;
     trip.rooms = $("#f-rooms").value ? parseInt($("#f-rooms").value, 10) : null;
+    trip.arrivalTime = $("#f-arrival-time").value || null;
+    trip.nearbyDestinations = getNearbyDestinations();
 
     var submitBtn = $("#trip-form button[type=submit]");
     var usingAI = AI.isConfigured();
@@ -280,6 +375,10 @@
   }
 
   // ---------- itinerary ----------
+  function blockClockTime(block) {
+    return block.startTime || ITIN.SLOT_DEFAULT_TIMES[block.time] || "09:00";
+  }
+
   function renderItinerary() {
     var container = $("#itinerary-content");
     container.innerHTML = "";
@@ -287,13 +386,25 @@
     if (!trip) { renderNoTripPrompt("view-itinerary"); return; }
     if (!trip.itinerary || !trip.itinerary.length) trip.itinerary = ITIN.generate(trip);
 
+    if (trip.arrivalTime) {
+      container.appendChild(el("p", { class: "disclaimer" }, [
+        "Day 1 is scheduled around your " + trip.arrivalTime + " arrival. Every block's time is editable below — nudge anything to fit your actual plans."
+      ]));
+    }
+
     trip.itinerary.forEach(function (day) {
+      var titleParts = ["Day " + day.dayNumber + " · " + fmtDateShort(day.date)];
       var dayCard = el("div", { class: "card day-card" }, [
-        el("h3", {}, ["Day " + day.dayNumber + " · " + fmtDateShort(day.date)])
+        el("h3", {}, titleParts.concat(day.dayTripTo ? [el("span", { class: "tag-pill", style: "margin-left:8px;" }, ["📍 Day trip: " + day.dayTripTo])] : []))
       ]);
       day.blocks.forEach(function (block) {
+        var timeInput = el("input", { type: "time", value: blockClockTime(block), class: "block-time-input" });
+        timeInput.addEventListener("change", function () {
+          block.startTime = timeInput.value;
+          STORE.saveTrip(trip);
+        });
         dayCard.appendChild(el("div", { class: "block-row" }, [
-          el("div", { class: "block-time" }, [block.time]),
+          el("div", { class: "block-time" }, [timeInput]),
           el("div", { class: "block-body" }, [
             el("strong", {}, [block.title]),
             el("p", {}, [block.desc]),
@@ -356,9 +467,8 @@
     var tierSel = el("select", { id: "b-tier" }, ["budget", "mid", "luxury"].map(function (t) {
       return el("option", { value: t, selected: t === trip.budgetTier ? "selected" : null }, [capitalize(t)]);
     }));
-    var regionSel = el("select", { id: "b-region" }, DATA.REGION_MULTIPLIERS.map(function (r) {
-      return el("option", { value: r.id, selected: r.id === trip.regionId ? "selected" : null }, [r.label]);
-    }));
+    var regionSel = buildRegionSelect("b-region", trip.regionId || "global");
+    var currencySel = buildCurrencySelect("b-currency", est.currency.code);
     var travelersInput = el("input", { type: "number", id: "b-travelers", min: "1", value: trip.travelers || 1 });
     var roomsInput = el("input", { type: "number", id: "b-rooms", min: "1", value: est.rooms, placeholder: "auto" });
     var flightInput = el("input", { type: "number", id: "b-flight", min: "0", value: trip.flightEstimate || "", placeholder: "0" });
@@ -371,12 +481,22 @@
       el("label", { class: "field" }, [el("span", {}, ["Travelers"]), travelersInput]),
       el("label", { class: "field" }, [el("span", {}, ["Hotel rooms"]), roomsInput])
     ]));
-    controls.appendChild(el("label", { class: "field" }, [el("span", {}, ["Flight est. per person ($)"]), flightInput]));
+    controls.appendChild(el("div", { class: "field-row" }, [
+      el("label", { class: "field" }, [el("span", {}, ["Currency"]), currencySel]),
+      el("label", { class: "field" }, [el("span", {}, ["Flight est. per person (" + est.currency.symbol + ")"]), flightInput])
+    ]));
     container.appendChild(controls);
+
+    // Picking a country here auto-suggests its currency too, same as the trip form.
+    regionSel.addEventListener("change", function () {
+      var region = DATA.REGION_MULTIPLIERS.filter(function (r) { return r.id === regionSel.value; })[0];
+      if (region && region.currency) currencySel.value = region.currency;
+    });
 
     function onControlsChange() {
       trip.budgetTier = tierSel.value;
       trip.regionId = regionSel.value;
+      trip.currency = currencySel.value;
       trip.travelers = parseInt(travelersInput.value, 10) || 1;
       trip.rooms = parseInt(roomsInput.value, 10) || null;
       trip.flightEstimate = parseFloat(flightInput.value) || 0;
@@ -384,36 +504,37 @@
       renderBudget();
       renderHeader();
     }
-    [tierSel, regionSel, travelersInput, roomsInput, flightInput].forEach(function (input) {
+    [tierSel, regionSel, currencySel, travelersInput, roomsInput, flightInput].forEach(function (input) {
       input.addEventListener("change", onControlsChange);
     });
 
+    var sym = est.currency.symbol;
     var totalCard = el("div", { class: "card" });
     totalCard.appendChild(el("div", { class: "budget-total" }, [
-      el("div", { class: "amount" }, [fmtMoney(est.grandTotal)]),
+      el("div", { class: "amount" }, [fmtMoney(est.grandTotal, sym)]),
       el("div", { class: "label" }, ["Estimated total (" + est.region.label + ")"])
     ]));
     totalCard.appendChild(el("div", { class: "budget-sub" }, [
-      el("span", {}, [fmtMoney(est.perTraveler) + " / traveler"]),
-      el("span", {}, [fmtMoney(est.perDay) + " / day"])
+      el("span", {}, [fmtMoney(est.perTraveler, sym) + " / traveler"]),
+      el("span", {}, [fmtMoney(est.perDay, sym) + " / day"])
     ]));
     est.rows.forEach(function (r) {
       totalCard.appendChild(el("div", { class: "budget-row" }, [
         el("div", {}, [
           el("div", { class: "row-label" }, [r.label]),
-          el("div", { class: "row-sub" }, [r.unitLabel + " × " + fmtMoney(r.perUnit)])
+          el("div", { class: "row-sub" }, [r.unitLabel + " × " + fmtMoney(r.perUnit, sym)])
         ]),
-        el("div", { class: "row-amount" }, [fmtMoney(r.total)])
+        el("div", { class: "row-amount" }, [fmtMoney(r.total, sym)])
       ]));
     });
     if (est.flightsTotal > 0) {
       totalCard.appendChild(el("div", { class: "budget-row" }, [
         el("div", { class: "row-label" }, ["✈️ Flights (entered estimate)"]),
-        el("div", { class: "row-amount" }, [fmtMoney(est.flightsTotal)])
+        el("div", { class: "row-amount" }, [fmtMoney(est.flightsTotal, sym)])
       ]));
     }
     totalCard.appendChild(el("p", { class: "disclaimer" }, [
-      "Ballpark planning estimate from typical per-day costs × a regional cost-of-living multiplier — not live pricing. Adjust the controls above, and check real quotes for lodging/flights before booking."
+      "Ballpark planning estimate from typical per-day costs × a regional cost-of-living multiplier, converted at an approximate static exchange rate — not live pricing or live rates. Adjust the controls above, and check real quotes for lodging/flights before booking."
     ]));
     container.appendChild(totalCard);
 
@@ -430,10 +551,11 @@
 
     var est = BUDGET.estimate(trip);
     var sum = EXPENSES.summarize(trip, est);
+    var sym = est.currency.symbol;
 
     // -- add-expense form --
     var formCard = el("div", { class: "card" });
-    var amountInput = el("input", { type: "number", min: "0", step: "0.01", placeholder: "Amount ($)" });
+    var amountInput = el("input", { type: "number", min: "0", step: "0.01", placeholder: "Amount (" + sym + ")" });
     var catSelect = el("select", {}, EXPENSES.CATEGORIES.map(function (c) { return el("option", { value: c.id }, [c.label]); }));
     var noteInput = el("input", { type: "text", placeholder: "Note (optional)" });
     var dateInput = el("input", { type: "date", value: new Date().toISOString().slice(0, 10) });
@@ -460,11 +582,11 @@
     var summaryCard = el("div", { class: "card" });
     var overBudget = sum.plannedTotal !== null && sum.totalSpent > sum.plannedTotal;
     summaryCard.appendChild(el("div", { class: "expense-summary" }, [
-      el("div", { class: "amount" + (overBudget ? " over" : "") }, [fmtMoney(sum.totalSpent)]),
+      el("div", { class: "amount" + (overBudget ? " over" : "") }, [fmtMoney(sum.totalSpent, sym)]),
       el("div", { class: "label" }, ["Spent so far"]),
       sum.plannedTotal !== null ? el("div", { class: "vs-planned" }, [
-        "of " + fmtMoney(sum.plannedTotal) + " estimated · " +
-        (sum.remaining >= 0 ? fmtMoney(sum.remaining) + " remaining" : fmtMoney(Math.abs(sum.remaining)) + " over budget")
+        "of " + fmtMoney(sum.plannedTotal, sym) + " estimated · " +
+        (sum.remaining >= 0 ? fmtMoney(sum.remaining, sym) + " remaining" : fmtMoney(Math.abs(sum.remaining), sym) + " over budget")
       ]) : null
     ]));
     if (sum.pct !== null) {
@@ -483,8 +605,8 @@
           el("div", { class: "cat-line" }, [
             el("span", {}, [r.label]),
             el("span", { class: "cat-amounts" }, [
-              el("strong", {}, [fmtMoney(r.spent)]),
-              r.planned !== null ? (" / " + fmtMoney(r.planned) + " planned") : " (no budget line)"
+              el("strong", {}, [fmtMoney(r.spent, sym)]),
+              r.planned !== null ? (" / " + fmtMoney(r.planned, sym) + " planned") : " (no budget line)"
             ])
           ])
         ]);
@@ -509,7 +631,7 @@
             el("div", { class: "exp-cat" }, [EXPENSES.categoryLabel(e.category)]),
             el("div", { class: "exp-meta" }, [fmtDate(e.date) + (e.note ? " · " + e.note : "")])
           ]),
-          el("div", { class: "exp-amount" }, [fmtMoney(e.amount)]),
+          el("div", { class: "exp-amount" }, [fmtMoney(e.amount, sym)]),
           el("button", { class: "exp-del", "aria-label": "Delete expense", onclick: function () {
             trip.expenses = trip.expenses.filter(function (x) { return x.id !== e.id; });
             STORE.saveTrip(trip);
@@ -528,6 +650,8 @@
     var trip = state.activeTripId ? STORE.getTrip(state.activeTripId) : null;
     if (!trip) { renderNoTripPrompt("view-places"); return; }
 
+    container.appendChild(renderHotelFinder(trip));
+
     var rec = PLACES.recommend(trip);
     container.appendChild(el("p", { class: "disclaimer" }, [
       "These are typical place profiles for your budget level, not live listings — tap a link to pull up real, current options near " + rec.destination + "."
@@ -538,6 +662,91 @@
 
     container.appendChild(el("div", { class: "places-subhead" }, ["Restaurant types to look for"]));
     rec.restaurants.forEach(function (r) { container.appendChild(renderPlaceCard(r)); });
+  }
+
+  // AI-only: real, specifically-named hotels near a landmark, sorted
+  // ascending by distance, within a price band — the offline generator
+  // has no way to know actual named properties or their real distances,
+  // so this needs AI mode configured.
+  function renderHotelFinder(trip) {
+    var card = el("div", { class: "card" });
+    card.appendChild(el("div", { class: "places-subhead", style: "margin-top:0;" }, ["🔎 Find specific hotels"]));
+
+    if (!AI.isConfigured()) {
+      card.appendChild(el("p", { class: "disclaimer" }, [
+        "Real, named hotel suggestions — sorted by distance from a landmark, filtered by your price range — need AI mode. The built-in generator below only knows generic hotel " +
+        "types, not actual properties."
+      ]));
+      card.appendChild(el("button", { class: "btn btn-secondary btn-sm", onclick: openAiSettings }, ["🤖 Set up AI"]));
+      return card;
+    }
+
+    var est = BUDGET.estimate(trip);
+    var sym = est.currency.symbol;
+    var tierLodging = (DATA.COST_TIERS[trip.budgetTier] || DATA.COST_TIERS.mid).lodging;
+    var defaultCenter = tierLodging * est.region.mult * est.currency.rate;
+
+    var hs = trip.hotelSearch;
+    var landmarkInput = el("input", { type: "text", placeholder: "Landmark or area, e.g. Taj Mahal", value: (hs && hs.landmark) || "" });
+    var minInput = el("input", { type: "number", min: "0", placeholder: "Min " + sym + "/night", value: (hs && hs.minPrice) || "" });
+    var maxInput = el("input", { type: "number", min: "0", placeholder: "Max " + sym + "/night", value: (hs && hs.maxPrice) || "" });
+    var findBtn = el("button", { class: "btn btn-primary btn-block", style: "margin-top:10px;" }, ["Find hotels"]);
+
+    card.appendChild(el("div", { class: "field-row" }, [landmarkInput]));
+    card.appendChild(el("div", { class: "field-row", style: "margin-top:8px;" }, [minInput, maxInput]));
+    card.appendChild(findBtn);
+
+    var resultsWrap = el("div", { style: "margin-top:12px;" });
+    card.appendChild(resultsWrap);
+
+    function renderResults() {
+      resultsWrap.innerHTML = "";
+      var current = trip.hotelSearch;
+      if (!current || !current.results || !current.results.length) return;
+      resultsWrap.appendChild(el("p", { class: "disclaimer" }, [
+        "AI-suggested from the model's own knowledge, not a live lookup — confirm price/availability before booking. Sorted by distance from \"" + current.landmark + "\"."
+      ]));
+      current.results.forEach(function (h) {
+        resultsWrap.appendChild(el("div", { class: "card place-card" }, [
+          el("h3", {}, [h.name]),
+          el("p", { class: "row-sub" }, ["~" + h.distanceKm + " km from " + current.landmark]),
+          el("p", {}, [h.desc]),
+          el("p", {}, [fmtMoney(h.priceLow, sym) + "–" + fmtMoney(h.priceHigh, sym) + " / night"]),
+          el("div", { class: "place-links" }, [
+            el("a", { class: "link-chip", href: PLACES.goibiboHotelLink(h.name, trip.destination), target: "_blank", rel: "noopener" }, ["Goibibo ↗"]),
+            el("a", { class: "link-chip", href: "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(h.name + " " + trip.destination), target: "_blank", rel: "noopener" }, ["Maps ↗"])
+          ])
+        ]));
+      });
+    }
+    renderResults();
+
+    findBtn.addEventListener("click", async function () {
+      var landmark = landmarkInput.value.trim();
+      if (!landmark) { toast("Enter a landmark or area first"); return; }
+      var minPrice = minInput.value ? parseFloat(minInput.value) : Math.round(defaultCenter * 0.6);
+      var maxPrice = maxInput.value ? parseFloat(maxInput.value) : Math.round(defaultCenter * 1.6);
+      if (maxPrice < minPrice) { toast("Max price should be more than min"); return; }
+
+      findBtn.disabled = true;
+      var originalLabel = findBtn.textContent;
+      findBtn.textContent = "✨ Asking Gemini…";
+      try {
+        var hotels = await AI.findHotels(trip, landmark, minPrice, maxPrice, est.currency.code);
+        trip.hotelSearch = { landmark: landmark, minPrice: minPrice, maxPrice: maxPrice, results: hotels, generatedAt: Date.now() };
+        STORE.saveTrip(trip);
+        renderResults();
+        toast(hotels.length ? "Found " + hotels.length + " hotels" : "No matches — try a wider price range");
+      } catch (err) {
+        console.warn("Hotel search failed:", err);
+        toast("Hotel search failed: " + err.message);
+      } finally {
+        findBtn.disabled = false;
+        findBtn.textContent = originalLabel;
+      }
+    });
+
+    return card;
   }
 
   function renderPlaceCard(item) {

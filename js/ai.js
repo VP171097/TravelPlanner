@@ -129,7 +129,7 @@ window.TP_AI = (function () {
 
   function tripContext(trip) {
     var interestLabels = (trip.interests || []).join(", ") || "a broad general mix";
-    return [
+    var lines = [
       "Destination: " + trip.destination,
       "Dates: " + trip.startDate + " to " + trip.endDate,
       "Travelers: " + (trip.travelers || 1),
@@ -138,7 +138,12 @@ window.TP_AI = (function () {
       "Interests: " + interestLabels,
       "Climate expectation: " + (trip.climate || "mixed"),
       "Trip type: " + (trip.tripType || "city"),
-    ].join("\n");
+    ];
+    if (trip.arrivalTime) lines.push("Arrival time on day 1: " + trip.arrivalTime + " (24h)");
+    if (trip.nearbyDestinations && trip.nearbyDestinations.length) {
+      lines.push("Nearby destinations to weave in as day trips (one per extra day, in order): " + trip.nearbyDestinations.join(", "));
+    }
+    return lines.join("\n");
   }
 
   // Gemini's responseSchema is a restricted subset of standard JSON Schema
@@ -152,17 +157,19 @@ window.TP_AI = (function () {
           type: "object",
           properties: {
             dayNumber: { type: "integer" },
+            dayTripTo: { type: "string" }, // name of the nearby destination this day covers, or "" if none
             blocks: {
               type: "array",
               items: {
                 type: "object",
                 properties: {
                   time: { type: "string", enum: ["morning", "afternoon", "evening"] },
+                  startTime: { type: "string" }, // "HH:MM", 24h — the actual clock time this block starts
                   title: { type: "string" },
                   desc: { type: "string" },
                   cost: { type: "string", enum: ["free", "low", "mid", "high"] },
                 },
-                required: ["time", "title", "desc", "cost"],
+                required: ["time", "startTime", "title", "desc", "cost"],
               },
             },
           },
@@ -171,6 +178,27 @@ window.TP_AI = (function () {
       },
     },
     required: ["days"],
+  };
+
+  var HOTEL_SCHEMA = {
+    type: "object",
+    properties: {
+      hotels: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            distanceKm: { type: "number" }, // approx. straight-line distance from the given landmark
+            priceLow: { type: "number" }, // in the traveler's stated currency, per night
+            priceHigh: { type: "number" },
+            desc: { type: "string" }, // one line: area/vibe/why it fits
+          },
+          required: ["name", "distanceKm", "priceLow", "priceHigh", "desc"],
+        },
+      },
+    },
+    required: ["hotels"],
   };
 
   var PACKING_SCHEMA = {
@@ -200,6 +228,14 @@ window.TP_AI = (function () {
       "Respect the traveler's pace: relaxed = 2 blocks/day (morning, evening), " +
       "balanced = 3 blocks/day (morning, afternoon, evening), packed = 4 blocks/day " +
       "(morning, afternoon, evening, plus a second afternoon/evening block). " +
+      "Give every block a realistic 24h startTime (\"HH:MM\") — space blocks out sensibly " +
+      "through the day (roughly 2-4 hours apart). If an arrival time is given for day 1, do NOT " +
+      "schedule anything before ~60-90 minutes after arrival (allow time to reach and check into " +
+      "lodging) — a lighter day 1 with just 1-2 blocks (or an arrival/check-in block) is correct " +
+      "for a late arrival. If nearby destinations are listed, dedicate one full day per destination " +
+      "(in the order given, starting day 2) to a day trip there — set that day's dayTripTo to the " +
+      "destination's name and make all of that day's blocks genuinely about that place, using your " +
+      "own real knowledge of it. Set dayTripTo to \"\" on days that aren't a nearby-destination day trip. " +
       "Output must match the provided JSON schema exactly.";
     var user =
       tripContext(trip) +
@@ -207,8 +243,8 @@ window.TP_AI = (function () {
 
     var shapeHint =
       'Respond with ONLY raw JSON (no markdown fences) matching exactly: ' +
-      '{"days":[{"dayNumber":<int>,"blocks":[{"time":"morning|afternoon|evening",' +
-      '"title":"<string>","desc":"<string>","cost":"free|low|mid|high"}]}]}';
+      '{"days":[{"dayNumber":<int>,"dayTripTo":"<string, empty if none>","blocks":[{"time":"morning|afternoon|evening",' +
+      '"startTime":"<HH:MM 24h>","title":"<string>","desc":"<string>","cost":"free|low|mid|high"}]}]}';
 
     return generateStructured(system, user, ITINERARY_SCHEMA, shapeHint, 8192).then(function (parsed) {
       var start = new Date(trip.startDate + "T00:00:00");
@@ -217,6 +253,7 @@ window.TP_AI = (function () {
         return {
           dayNumber: day.dayNumber || i + 1,
           date: date.toISOString().slice(0, 10),
+          dayTripTo: day.dayTripTo || null,
           blocks: day.blocks || [],
         };
       });
@@ -243,6 +280,39 @@ window.TP_AI = (function () {
     });
   }
 
+  // Real, specifically-named hotel suggestions near a landmark, within a
+  // price band, sorted ascending by distance from that landmark. This is
+  // the one AI feature with no offline equivalent — the built-in generator
+  // has no geographic or pricing knowledge of actual named properties, so
+  // this requires AI mode. Results are the model's own knowledge, not a
+  // live lookup — always double-check current price/availability before
+  // booking, which is why every result links out to a real search.
+  function findHotels(trip, landmark, priceLow, priceHigh, currencyCode) {
+    var system =
+      "You are a knowledgeable local travel assistant with real knowledge of actual, currently " +
+      "operating hotels/guesthouses in the given destination. Suggest genuinely real, specifically " +
+      "named properties near the given landmark — never invent a hotel name. Estimate each one's " +
+      "approximate straight-line distance in km from the landmark, and a realistic per-night price " +
+      "range in the given currency. Only include hotels whose price range overlaps the traveler's " +
+      "stated budget. Sort the list ascending by distanceKm. Output must match the provided JSON " +
+      "schema exactly.";
+    var user = [
+      "Destination: " + trip.destination,
+      "Landmark / area to search near: " + landmark,
+      "Budget per night: " + priceLow + "–" + priceHigh + " " + currencyCode,
+      "Suggest 5-8 real hotels, closest first.",
+    ].join("\n");
+    var shapeHint =
+      'Respond with ONLY raw JSON (no markdown fences) matching exactly: ' +
+      '{"hotels":[{"name":"<string>","distanceKm":<number>,"priceLow":<number>,"priceHigh":<number>,"desc":"<string>"}]}';
+
+    return generateStructured(system, user, HOTEL_SCHEMA, shapeHint, 4096).then(function (parsed) {
+      var hotels = (parsed.hotels || []).slice();
+      hotels.sort(function (a, b) { return (a.distanceKm || 0) - (b.distanceKm || 0); }); // safety net — don't fully trust model ordering
+      return hotels;
+    });
+  }
+
   return {
     MODEL: MODEL,
     getApiKey: getApiKey,
@@ -251,5 +321,6 @@ window.TP_AI = (function () {
     testConnection: testConnection,
     generateItinerary: generateItinerary,
     generatePacking: generatePacking,
+    findHotels: findHotels,
   };
 })();

@@ -4,10 +4,19 @@
    scores the activity bank against the trip's interests, then
    fills each day's slots without repeating an activity until
    the pool is exhausted.
+
+   Blocks carry a clock "startTime" (HH:MM) in addition to the
+   morning/afternoon/evening bucket used for scoring — day 1 is
+   scheduled around the trip's arrival time (if given), later days
+   use a normal full-day schedule. Times are just a starting
+   suggestion; the UI lets the traveler edit any block's time.
    ============================================================ */
 
 window.TP_ITINERARY = (function (DATA) {
   "use strict";
+
+  var SLOT_DEFAULT_TIMES = { morning: "09:00", afternoon: "14:00", evening: "18:30" };
+  var BLOCK_SPACING_MIN = 180; // ~3h between blocks by default
 
   function computeDayCount(startDate, endDate) {
     var start = new Date(startDate + "T00:00:00");
@@ -16,6 +25,18 @@ window.TP_ITINERARY = (function (DATA) {
     if (isNaN(diff) || diff < 1) diff = 1;
     return Math.min(diff, 30); // sanity cap
   }
+
+  function clampMinutes(mins) { return Math.max(0, Math.min(23 * 60 + 59, mins)); }
+  function toMinutes(hhmm) {
+    var p = (hhmm || "09:00").split(":").map(Number);
+    return (p[0] || 0) * 60 + (p[1] || 0);
+  }
+  function fromMinutes(mins) {
+    mins = clampMinutes(mins);
+    var h = Math.floor(mins / 60), m = mins % 60;
+    return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+  }
+  function addMinutes(hhmm, delta) { return fromMinutes(toMinutes(hhmm) + delta); }
 
   function shuffle(arr) {
     var a = arr.slice();
@@ -46,6 +67,8 @@ window.TP_ITINERARY = (function (DATA) {
     var dayCount = computeDayCount(trip.startDate, trip.endDate);
     var interests = (trip.interests && trip.interests.length) ? trip.interests : ["sightseeing", "food", "culture"];
     var slotOrder = slotsForPace(trip.pace);
+    var nearby = (trip.nearbyDestinations || []).filter(Boolean);
+    var arrivalTime = trip.arrivalTime || null;
 
     // Build one scored pool per distinct time slot we need, plus cursors.
     var pools = {};
@@ -76,19 +99,54 @@ window.TP_ITINERARY = (function (DATA) {
     for (var d = 0; d < dayCount; d++) {
       var date = new Date(start.getTime() + d * 86400000);
       var usedTitles = [];
-      var blocks = slotOrder.map(function (slot) {
-        var activity = nextFromSlot(slot, usedTitles);
-        usedTitles.push(activity.title);
-        return { time: slot, title: activity.title, desc: activity.desc, cost: activity.cost, tags: activity.tags };
-      });
+
+      // Day 1 is scheduled around arrival: drop any slot that would fall
+      // before you've realistically checked in, and start the day's first
+      // block ~75min after touchdown instead of the normal default.
+      var daySlots = slotOrder;
+      var firstBlockTime = SLOT_DEFAULT_TIMES[slotOrder[0]] || "09:00";
+      if (d === 0 && arrivalTime) {
+        var effectiveStart = addMinutes(arrivalTime, 75);
+        daySlots = slotOrder.filter(function (slot) { return SLOT_DEFAULT_TIMES[slot] >= effectiveStart; });
+        firstBlockTime = daySlots.length ? effectiveStart : null;
+      }
+
+      var blocks;
+      if (d === 0 && arrivalTime && !daySlots.length) {
+        // Arrived too late in the day for any planned activity.
+        blocks = [{ time: "evening", startTime: addMinutes(arrivalTime, 45), title: "Arrival & check-in", desc: "Settle into your accommodation and rest up after traveling — a full day starts tomorrow.", cost: "free", tags: [] }];
+      } else {
+        var cursor = firstBlockTime;
+        blocks = daySlots.map(function (slot) {
+          var activity = nextFromSlot(slot, usedTitles);
+          usedTitles.push(activity.title);
+          var block = { time: slot, startTime: cursor, title: activity.title, desc: activity.desc, cost: activity.cost, tags: activity.tags };
+          cursor = addMinutes(cursor, BLOCK_SPACING_MIN);
+          return block;
+        });
+      }
+
+      // Days 2+ get dedicated day trips to any nearby destinations, in order.
+      var dayTripTo = null;
+      if (d > 0 && nearby.length) {
+        var nearbyIdx = d - 1;
+        if (nearbyIdx < nearby.length) {
+          dayTripTo = nearby[nearbyIdx];
+          blocks = blocks.map(function (b, i) {
+            return i === 0 ? Object.assign({}, b, { title: "Day trip to " + dayTripTo + ": " + b.title, desc: b.desc + " (Day trip to " + dayTripTo + " — swap in local specifics if you know them.)" }) : b;
+          });
+        }
+      }
+
       days.push({
         dayNumber: d + 1,
         date: date.toISOString().slice(0, 10),
+        dayTripTo: dayTripTo,
         blocks: blocks
       });
     }
     return days;
   }
 
-  return { generate: generate, computeDayCount: computeDayCount };
+  return { generate: generate, computeDayCount: computeDayCount, addMinutes: addMinutes, SLOT_DEFAULT_TIMES: SLOT_DEFAULT_TIMES };
 })(window.TP_DATA);

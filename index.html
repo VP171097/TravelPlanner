@@ -121,6 +121,23 @@
 
       <div class="field-row">
         <label class="field">
+          <span>Arrival time on day 1 (optional)</span>
+          <input type="time" id="f-arrival-time" />
+        </label>
+      </div>
+
+      <fieldset class="field">
+        <legend>Nearby destinations (optional)</legend>
+        <p class="disclaimer" style="margin:0 0 8px;">e.g. Mathura, Vrindavan — each gets its own day trip in the itinerary.</p>
+        <div class="field-row">
+          <input type="text" id="f-nearby-input" placeholder="Add a place…" />
+          <button type="button" id="btn-add-nearby" class="btn btn-secondary btn-sm">Add</button>
+        </div>
+        <div id="f-nearby-chips" class="chip-group"></div>
+      </fieldset>
+
+      <div class="field-row">
+        <label class="field">
           <span>Travelers</span>
           <input type="number" id="f-travelers" min="1" value="1" required />
         </label>
@@ -144,8 +161,19 @@
           </select>
         </label>
         <label class="field">
-          <span>Region (for cost estimate)</span>
+          <span>Region / country (for cost estimate)</span>
           <select id="f-region"></select>
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Currency</span>
+          <select id="f-currency"></select>
+        </label>
+        <label class="field">
+          <span>Hotel rooms (optional)</span>
+          <input type="number" id="f-rooms" min="1" placeholder="auto" />
         </label>
       </div>
 
@@ -167,12 +195,8 @@
 
       <div class="field-row">
         <label class="field">
-          <span>Flight est. per person ($, optional)</span>
+          <span>Flight est. per person (optional)</span>
           <input type="number" id="f-flight" min="0" placeholder="0" />
-        </label>
-        <label class="field">
-          <span>Hotel rooms (optional)</span>
-          <input type="number" id="f-rooms" min="1" placeholder="auto" />
         </label>
       </div>
 

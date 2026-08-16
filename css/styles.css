@@ -178,7 +178,18 @@ h1, h2, h3 { margin: 0; }
 .day-card h3 { font-size: 15px; color: var(--brand); margin-bottom: 10px; }
 .block-row { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); }
 .block-row:first-child { border-top: none; }
-.block-time { width: 78px; flex-shrink: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); padding-top: 2px; }
+.block-time { width: 92px; flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--text-muted); padding-top: 2px; }
+.block-time-input {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 700;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+.block-time-input:hover, .block-time-input:focus { border-color: var(--border); background: var(--surface-2); outline: none; }
 .block-body strong { font-size: 14px; display: block; }
 .block-body p { margin: 2px 0 0; font-size: 13px; color: var(--text-muted); }
 .cost-badge { display: inline-block; margin-top: 4px; font-size: 10px; padding: 2px 7px; border-radius: 999px; background: var(--surface-2); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }

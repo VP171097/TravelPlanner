@@ -23,18 +23,30 @@ real-AI generation (see below).
   Tap **Regenerate** any time for a fresh mix; if AI is configured it's
   tried first and falls back to the built-in generator automatically on
   any failure (offline, bad key, rate limit, etc.) — you always get a
-  usable itinerary.
+  usable itinerary. Set an **arrival time** for day 1 and it schedules
+  around it (skips anything before you'd realistically have checked in);
+  add **nearby destinations** (e.g. Mathura, Vrindavan) and each gets its
+  own dedicated day trip. Every block's clock time is editable inline —
+  nudge anything to fit your actual plans.
 - **Budget estimation** — per-day cost baselines (lodging, food,
   transport, activities, misc) scaled by a regional cost-of-living
-  multiplier and your traveler/room count. Adjust any field and totals
-  update instantly. Clearly labeled as a planning estimate, not live
-  pricing.
+  multiplier and your traveler/room count. Pick a specific country
+  (e.g. India) or a broad region average, and a display **currency**
+  (₹, $, €, and 20+ more) — picking a country auto-suggests its
+  currency. Adjust any field and totals update instantly. Clearly
+  labeled as a planning estimate at an approximate, static exchange
+  rate — not live pricing or live rates.
 - **Hotel & restaurant recommendations** — since the app works fully
   offline it can't fetch live listings, so it gives you the *type* of
   place to look for at your budget level (e.g. "3–4★ boutique hotel",
   "street-food stalls"), each with one-tap links to Google Maps,
-  Booking.com, TripAdvisor, or Yelp so you can pull up real, current
-  options for your destination when you do have signal.
+  Booking.com, Goibibo, TripAdvisor, or Yelp so you can pull up real,
+  current options for your destination when you do have signal.
+  **🔎 Find specific hotels (AI mode)** — give it a landmark/area and a
+  price range per night and it suggests real, specifically-named
+  properties nearby (from Gemini's own knowledge, not a live lookup —
+  always confirm price/availability before booking), sorted nearest
+  first, each with a Goibibo search link.
 - **Packing checklist** — same AI-with-fallback pattern as the itinerary:
   AI mode tailors the list to your destination's real climate for your
   actual dates; built-in mode auto-builds from your trip's climate, trip
