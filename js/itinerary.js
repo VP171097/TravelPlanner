@@ -26,6 +26,16 @@ window.TP_ITINERARY = (function (DATA) {
     return Math.min(diff, 30); // sanity cap
   }
 
+  // Extracts "YYYY-MM-DD" from a Date using its LOCAL calendar date, not
+  // toISOString()'s UTC conversion — for timezones ahead of UTC (e.g. IST,
+  // UTC+5:30), a local midnight Date's UTC representation is still the
+  // *previous* calendar day, so .toISOString().slice(0,10) silently rolls
+  // every date back by one.
+  function localDateStr(d) {
+    var m = d.getMonth() + 1, day = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+  }
+
   function clampMinutes(mins) { return Math.max(0, Math.min(23 * 60 + 59, mins)); }
   function toMinutes(hhmm) {
     var p = (hhmm || "09:00").split(":").map(Number);
@@ -140,7 +150,7 @@ window.TP_ITINERARY = (function (DATA) {
 
       days.push({
         dayNumber: d + 1,
-        date: date.toISOString().slice(0, 10),
+        date: localDateStr(date),
         dayTripTo: dayTripTo,
         blocks: blocks
       });
