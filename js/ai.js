@@ -247,16 +247,50 @@ window.TP_AI = (function () {
       '"startTime":"<HH:MM 24h>","title":"<string>","desc":"<string>","cost":"free|low|mid|high"}]}]}';
 
     return generateStructured(system, user, ITINERARY_SCHEMA, shapeHint, 8192).then(function (parsed) {
-      var start = new Date(trip.startDate + "T00:00:00");
-      return (parsed.days || []).map(function (day, i) {
-        var date = new Date(start.getTime() + i * 86400000);
-        return {
-          dayNumber: day.dayNumber || i + 1,
-          date: date.toISOString().slice(0, 10),
-          dayTripTo: day.dayTripTo || null,
-          blocks: day.blocks || [],
-        };
-      });
+      return reshapeItineraryDays(trip, parsed.days);
+    });
+  }
+
+  function reshapeItineraryDays(trip, days) {
+    var start = new Date(trip.startDate + "T00:00:00");
+    return (days || []).map(function (day, i) {
+      var date = new Date(start.getTime() + i * 86400000);
+      return {
+        dayNumber: day.dayNumber || i + 1,
+        date: date.toISOString().slice(0, 10),
+        dayTripTo: day.dayTripTo || null,
+        blocks: day.blocks || [],
+      };
+    });
+  }
+
+  // Free-form edit of an *existing* itinerary — "make day 2 more relaxed",
+  // "swap the museum for something outdoors", etc. Sends the current
+  // itinerary back to the model as context so it only changes what the
+  // instruction asks for. No offline equivalent (the rule-based generator
+  // can't interpret free-form instructions) — this is AI-only, and on
+  // failure the caller should leave the existing itinerary untouched
+  // rather than silently discarding the traveler's edits.
+  function editItinerary(trip, currentItinerary, instruction) {
+    var system =
+      "You are updating an existing day-by-day trip itinerary per the traveler's instruction. " +
+      "You'll be given the current itinerary as JSON and an instruction describing what to change. " +
+      "Apply ONLY what the instruction asks for — keep every other day/block exactly as given unless " +
+      "the change naturally requires adjusting it (e.g. re-spacing that day's startTimes). Keep the " +
+      "same number of days as the current itinerary unless the instruction explicitly asks to add or " +
+      "remove a day. Keep realistic 24h startTimes, spaced sensibly. Preserve dayTripTo on days not " +
+      "affected by the instruction. Output must match the provided JSON schema exactly.";
+    var user =
+      tripContext(trip) +
+      "\n\nCurrent itinerary:\n" + JSON.stringify({ days: currentItinerary }) +
+      "\n\nInstruction: " + instruction;
+    var shapeHint =
+      'Respond with ONLY raw JSON (no markdown fences) matching exactly: ' +
+      '{"days":[{"dayNumber":<int>,"dayTripTo":"<string, empty if none>","blocks":[{"time":"morning|afternoon|evening",' +
+      '"startTime":"<HH:MM 24h>","title":"<string>","desc":"<string>","cost":"free|low|mid|high"}]}]}';
+
+    return generateStructured(system, user, ITINERARY_SCHEMA, shapeHint, 8192).then(function (parsed) {
+      return reshapeItineraryDays(trip, parsed.days);
     });
   }
 
@@ -320,6 +354,7 @@ window.TP_AI = (function () {
     isConfigured: isConfigured,
     testConnection: testConnection,
     generateItinerary: generateItinerary,
+    editItinerary: editItinerary,
     generatePacking: generatePacking,
     findHotels: findHotels,
   };

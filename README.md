@@ -27,7 +27,11 @@ real-AI generation (see below).
   around it (skips anything before you'd realistically have checked in);
   add **nearby destinations** (e.g. Mathura, Vrindavan) and each gets its
   own dedicated day trip. Every block's clock time is editable inline —
-  nudge anything to fit your actual plans.
+  nudge anything to fit your actual plans. Tap **✨ AI edit** to
+  free-form request changes ("make day 2 more relaxed", "swap the
+  museum for something outdoors") — it updates just what you asked for
+  and leaves the rest of the itinerary alone (AI mode only; on any
+  failure your existing itinerary is left untouched).
 - **Budget estimation** — per-day cost baselines (lodging, food,
   transport, activities, misc) scaled by a regional cost-of-living
   multiplier and your traveler/room count. Pick a specific country

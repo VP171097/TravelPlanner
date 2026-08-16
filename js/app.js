@@ -416,6 +416,57 @@
     });
   }
 
+  // ---------- AI edit itinerary (free-form instructions) ----------
+  // No offline equivalent — the rule-based generator can't interpret
+  // free-form instructions — so this is AI-only. On failure the existing
+  // itinerary is left untouched rather than silently discarded.
+  function openAiEditOverlay() {
+    var trip = state.activeTripId ? STORE.getTrip(state.activeTripId) : null;
+    if (!trip) { toast("Select or create a trip first"); return; }
+    if (!AI.isConfigured()) {
+      toast("AI edit needs AI mode — configure your Gemini key first");
+      openAiSettings();
+      return;
+    }
+    $("#f-ai-edit-instruction").value = "";
+    $("#ai-edit-status").textContent = "";
+    $("#ai-edit-overlay").classList.remove("hidden");
+    $("#f-ai-edit-instruction").focus();
+  }
+  function closeAiEditOverlay() { $("#ai-edit-overlay").classList.add("hidden"); }
+
+  $("#btn-ai-edit-itinerary").addEventListener("click", openAiEditOverlay);
+  $("#btn-close-ai-edit").addEventListener("click", closeAiEditOverlay);
+  $("#btn-ai-edit-cancel").addEventListener("click", closeAiEditOverlay);
+
+  $("#btn-ai-edit-apply").addEventListener("click", async function () {
+    var trip = state.activeTripId ? STORE.getTrip(state.activeTripId) : null;
+    if (!trip) return;
+    var instruction = $("#f-ai-edit-instruction").value.trim();
+    if (!instruction) { toast("Enter an instruction first"); return; }
+
+    var btn = $("#btn-ai-edit-apply");
+    var originalLabel = btn.textContent;
+    var status = $("#ai-edit-status");
+    btn.disabled = true;
+    btn.textContent = "✨ Updating…";
+    status.textContent = "";
+    try {
+      var updated = await AI.editItinerary(trip, trip.itinerary || [], instruction);
+      trip.itinerary = updated;
+      STORE.saveTrip(trip);
+      renderItinerary();
+      closeAiEditOverlay();
+      toast("✨ Itinerary updated");
+    } catch (err) {
+      console.warn("AI itinerary edit failed:", err);
+      status.textContent = "❌ " + err.message + " — your itinerary wasn't changed.";
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  });
+
   $("#btn-regen-itinerary").addEventListener("click", async function () {
     var trip = state.activeTripId ? STORE.getTrip(state.activeTripId) : null;
     if (!trip) return;

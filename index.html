@@ -47,7 +47,8 @@
   <section id="view-itinerary" class="view">
     <div class="view-toolbar">
       <h2 class="section-title">Itinerary</h2>
-      <div style="display:flex; gap:8px;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="btn-ai-edit-itinerary" class="btn btn-secondary btn-sm">✨ AI edit</button>
         <button id="btn-share-itinerary" class="btn btn-secondary btn-sm">📤 Share</button>
         <button id="btn-regen-itinerary" class="btn btn-secondary btn-sm">🔀 Regenerate</button>
       </div>
@@ -205,6 +206,30 @@
         <button type="submit" class="btn btn-primary">Save trip</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- AI EDIT ITINERARY -->
+<div id="ai-edit-overlay" class="overlay hidden">
+  <div class="overlay-sheet">
+    <div class="overlay-header">
+      <h2>✨ Edit itinerary with AI</h2>
+      <button id="btn-close-ai-edit" class="btn btn-icon" aria-label="Close">✕</button>
+    </div>
+    <p class="disclaimer" style="margin-bottom:16px;">
+      Tell it what to change — e.g. "make day 2 more relaxed", "swap the museum for something
+      outdoors", "add a food-focused evening on day 3". It updates the itinerary to match while
+      leaving the rest as-is.
+    </p>
+    <label class="field">
+      <span>Instructions</span>
+      <textarea id="f-ai-edit-instruction" rows="4" placeholder="What would you like to change?"></textarea>
+    </label>
+    <p id="ai-edit-status" class="disclaimer"></p>
+    <div class="overlay-actions">
+      <button type="button" id="btn-ai-edit-cancel" class="btn btn-secondary">Cancel</button>
+      <button type="button" id="btn-ai-edit-apply" class="btn btn-primary">Update itinerary</button>
+    </div>
   </div>
 </div>
 
