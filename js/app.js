@@ -201,7 +201,7 @@
     var submitBtn = $("#trip-form button[type=submit]");
     var usingAI = AI.isConfigured();
     submitBtn.disabled = true;
-    submitBtn.textContent = usingAI ? "✨ Asking Claude…" : "Saving…";
+    submitBtn.textContent = usingAI ? "✨ Asking Gemini…" : "Saving…";
 
     // (Re)generate content that depends on these inputs — tries AI first
     // (if configured), falls back to the built-in generators automatically.
@@ -311,7 +311,7 @@
     var btn = $("#btn-regen-itinerary");
     var originalLabel = btn.textContent;
     btn.disabled = true;
-    btn.textContent = AI.isConfigured() ? "✨ Asking Claude…" : "Regenerating…";
+    btn.textContent = AI.isConfigured() ? "✨ Asking Gemini…" : "Regenerating…";
     try {
       var res = await generateItineraryForTrip(trip);
       trip.itinerary = res.result;
@@ -610,7 +610,7 @@
     var btn = $("#btn-regen-packing");
     var originalLabel = btn.textContent;
     btn.disabled = true;
-    btn.textContent = AI.isConfigured() ? "✨ Asking Claude…" : "Rebuilding…";
+    btn.textContent = AI.isConfigured() ? "✨ Asking Gemini…" : "Rebuilding…";
     try {
       var res = await generatePackingForTrip(trip);
       trip.packing = PACKING.merge(res.result, trip.packing);
@@ -627,12 +627,12 @@
   function renderAiStatus() {
     var status = $("#ai-status");
     status.textContent = AI.isConfigured()
-      ? "✅ Configured — AI regenerate buttons will call Claude."
+      ? "✅ Configured — AI regenerate buttons will call Gemini."
       : "Not set — the app uses its built-in generator (no network needed).";
   }
 
   function openAiSettings() {
-    $("#f-ai-worker-url").value = AI.getWorkerUrl();
+    $("#f-ai-api-key").value = AI.getApiKey();
     renderAiStatus();
     $("#ai-settings-overlay").classList.remove("hidden");
   }
@@ -642,23 +642,23 @@
   $("#btn-close-ai-settings").addEventListener("click", closeAiSettings);
 
   $("#btn-ai-save").addEventListener("click", function () {
-    AI.setWorkerUrl($("#f-ai-worker-url").value);
+    AI.setApiKey($("#f-ai-api-key").value);
     renderAiStatus();
     toast(AI.isConfigured() ? "AI settings saved" : "AI settings cleared");
     closeAiSettings();
   });
 
   $("#btn-ai-clear").addEventListener("click", function () {
-    AI.setWorkerUrl("");
-    $("#f-ai-worker-url").value = "";
+    AI.setApiKey("");
+    $("#f-ai-api-key").value = "";
     renderAiStatus();
     toast("AI settings cleared — back to the built-in generator");
   });
 
   $("#btn-ai-test").addEventListener("click", async function () {
-    var url = $("#f-ai-worker-url").value.trim();
-    if (!url) { toast("Enter a Worker URL first"); return; }
-    AI.setWorkerUrl(url);
+    var key = $("#f-ai-api-key").value.trim();
+    if (!key) { toast("Enter an API key first"); return; }
+    AI.setApiKey(key);
     var btn = $("#btn-ai-test");
     var original = btn.textContent;
     btn.disabled = true;
@@ -666,7 +666,7 @@
     var status = $("#ai-status");
     try {
       await AI.testConnection();
-      status.textContent = "✅ Connected — the Worker and API key are working.";
+      status.textContent = "✅ Connected — the Gemini API key is working.";
     } catch (err) {
       status.textContent = "❌ " + err.message;
     } finally {

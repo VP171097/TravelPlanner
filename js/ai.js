@@ -1,53 +1,59 @@
 /* ============================================================
-   ai.js — optional real-AI itinerary/packing generation via a
-   user-deployed Cloudflare Worker relay (see /cf-worker).
+   ai.js — optional real-AI itinerary/packing generation via the
+   Gemini API, called directly from the browser.
 
-   This module never talks to Anthropic directly — the browser can't
-   (see cf-worker/README.md for why). It POSTs a Messages-API-shaped
-   request to the configured Worker URL, which injects the API key
-   server-side and relays it. If no Worker URL is configured, or a
-   call fails, callers should fall back to the offline generators in
-   itinerary.js / packing.js — this module never breaks the app.
+   Unlike Anthropic's API, Google's Generative Language API sends
+   CORS headers that allow browser calls from any origin, so no
+   server-side relay is needed here — the app POSTs straight to
+   generativelanguage.googleapis.com with the user's own API key.
+   That key is stored locally (localStorage) and never leaves the
+   browser except in requests to Google. Users are told to restrict
+   their key by HTTP referrer in Google AI Studio so a copied key
+   can't be used from anywhere else.
+
+   If no API key is configured, or a call fails, callers should fall
+   back to the offline generators in itinerary.js / packing.js — this
+   module never breaks the app.
    ============================================================ */
 
 window.TP_AI = (function () {
   "use strict";
 
-  var KEY_WORKER_URL = "tp_ai_worker_url";
-  var MODEL = "claude-haiku-4-5"; // also enforced server-side by the Worker
+  var KEY_API_KEY = "tp_ai_api_key";
+  var MODEL = "gemini-2.5-flash";
+  var API_URL = "https://generativelanguage.googleapis.com/v1beta/models/" + MODEL + ":generateContent";
 
-  function getWorkerUrl() {
-    return (localStorage.getItem(KEY_WORKER_URL) || "").trim();
+  function getApiKey() {
+    return (localStorage.getItem(KEY_API_KEY) || "").trim();
   }
-  function setWorkerUrl(url) {
-    url = (url || "").trim();
-    if (url) localStorage.setItem(KEY_WORKER_URL, url);
-    else localStorage.removeItem(KEY_WORKER_URL);
+  function setApiKey(key) {
+    key = (key || "").trim();
+    if (key) localStorage.setItem(KEY_API_KEY, key);
+    else localStorage.removeItem(KEY_API_KEY);
   }
   function isConfigured() {
-    return !!getWorkerUrl();
+    return !!getApiKey();
   }
 
-  // Raw call: POSTs to the Worker, returns the Anthropic Messages API
-  // response object (whatever the assistant said, unparsed).
-  function rawCall(payload) {
-    var url = getWorkerUrl();
-    if (!url) return Promise.reject(new Error("AI is not configured — add your Worker URL in AI settings."));
+  // Raw call: POSTs to the Gemini API, returns the parsed response body.
+  function rawCall(body) {
+    var key = getApiKey();
+    if (!key) return Promise.reject(new Error("AI is not configured — add your Gemini API key in AI settings."));
 
-    return fetch(url, {
+    return fetch(API_URL, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify(body),
     })
       .catch(function () {
-        throw new Error("Couldn't reach the AI proxy — check the Worker URL and your connection.");
+        throw new Error("Couldn't reach the Gemini API — check your connection.");
       })
       .then(function (res) {
         return res.text().then(function (text) {
           var data;
           try { data = JSON.parse(text); } catch (e) { data = null; }
           if (!res.ok) {
-            var msg = (data && (data.error && (data.error.message || data.error))) || ("HTTP " + res.status);
+            var msg = (data && data.error && data.error.message) || ("HTTP " + res.status);
             throw new Error("AI request failed: " + msg);
           }
           if (!data) throw new Error("AI returned an unreadable response.");
@@ -56,18 +62,29 @@ window.TP_AI = (function () {
       });
   }
 
-  function textBlock(message) {
-    return (message.content || []).filter(function (b) { return b.type === "text"; })[0];
+  function responseText(data) {
+    var candidate = (data.candidates || [])[0];
+    if (!candidate) {
+      var blockReason = data.promptFeedback && data.promptFeedback.blockReason;
+      throw new Error(blockReason ? "AI blocked the request (" + blockReason + ")." : "AI returned no response.");
+    }
+    if (candidate.finishReason && candidate.finishReason !== "STOP" && candidate.finishReason !== "MAX_TOKENS") {
+      throw new Error("AI stopped early (" + candidate.finishReason + ").");
+    }
+    var part = candidate.content && (candidate.content.parts || [])[0];
+    if (!part || !part.text) throw new Error("AI response had no content.");
+    return part.text;
   }
 
-  // Structured call: expects the assistant's text content to itself be
-  // JSON (enforced via output_config.format on the request) and parses it.
-  function structuredCall(payload) {
-    return rawCall(payload).then(function (message) {
-      var block = textBlock(message);
-      if (!block) throw new Error("AI response had no content.");
+  // Structured call: expects the model's text to itself be JSON
+  // (enforced via generationConfig.responseSchema) and parses it.
+  function structuredCall(body) {
+    return rawCall(body).then(function (data) {
+      var text = responseText(data).trim();
+      // Defensive: strip a ```json ... ``` fence if the model added one anyway.
+      text = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
       try {
-        return JSON.parse(block.text);
+        return JSON.parse(text);
       } catch (e) {
         throw new Error("AI returned invalid JSON.");
       }
@@ -76,11 +93,11 @@ window.TP_AI = (function () {
 
   function testConnection() {
     return rawCall({
-      max_tokens: 16,
-      messages: [{ role: "user", content: "Reply with only the single word OK." }],
-    }).then(function (message) {
-      var block = textBlock(message);
-      if (!block || !/ok/i.test(block.text)) throw new Error("Unexpected response from AI proxy.");
+      contents: [{ role: "user", parts: [{ text: "Reply with only the single word OK." }] }],
+      generationConfig: { maxOutputTokens: 16 },
+    }).then(function (data) {
+      var text = responseText(data);
+      if (!/ok/i.test(text)) throw new Error("Unexpected response from Gemini.");
       return true;
     });
   }
@@ -99,57 +116,60 @@ window.TP_AI = (function () {
     ].join("\n");
   }
 
+  // Gemini's responseSchema is a restricted subset of OpenAPI 3.0's Schema
+  // object: "type" values are the capitalized Type enum (STRING, OBJECT,
+  // ARRAY, ...), and "propertyOrdering" (Gemini-specific) hints the key
+  // order in the generated JSON. additionalProperties is not part of this
+  // subset, so it's omitted.
   var ITINERARY_SCHEMA = {
-    type: "object",
+    type: "OBJECT",
     properties: {
       days: {
-        type: "array",
+        type: "ARRAY",
         items: {
-          type: "object",
+          type: "OBJECT",
           properties: {
-            dayNumber: { type: "integer" },
+            dayNumber: { type: "INTEGER" },
             blocks: {
-              type: "array",
+              type: "ARRAY",
               items: {
-                type: "object",
+                type: "OBJECT",
                 properties: {
-                  time: { type: "string", enum: ["morning", "afternoon", "evening"] },
-                  title: { type: "string" },
-                  desc: { type: "string" },
-                  cost: { type: "string", enum: ["free", "low", "mid", "high"] },
+                  time: { type: "STRING", enum: ["morning", "afternoon", "evening"] },
+                  title: { type: "STRING" },
+                  desc: { type: "STRING" },
+                  cost: { type: "STRING", enum: ["free", "low", "mid", "high"] },
                 },
                 required: ["time", "title", "desc", "cost"],
-                additionalProperties: false,
+                propertyOrdering: ["time", "title", "desc", "cost"],
               },
             },
           },
           required: ["dayNumber", "blocks"],
-          additionalProperties: false,
+          propertyOrdering: ["dayNumber", "blocks"],
         },
       },
     },
     required: ["days"],
-    additionalProperties: false,
   };
 
   var PACKING_SCHEMA = {
-    type: "object",
+    type: "OBJECT",
     properties: {
       items: {
-        type: "array",
+        type: "ARRAY",
         items: {
-          type: "object",
+          type: "OBJECT",
           properties: {
-            category: { type: "string" },
-            text: { type: "string" },
+            category: { type: "STRING" },
+            text: { type: "STRING" },
           },
           required: ["category", "text"],
-          additionalProperties: false,
+          propertyOrdering: ["category", "text"],
         },
       },
     },
     required: ["items"],
-    additionalProperties: false,
   };
 
   function generateItinerary(trip, dayCount) {
@@ -167,10 +187,13 @@ window.TP_AI = (function () {
       "\n\nGenerate a " + dayCount + "-day itinerary starting " + trip.startDate + ".";
 
     return structuredCall({
-      max_tokens: 4096,
-      system: system,
-      messages: [{ role: "user", content: user }],
-      output_config: { format: { type: "json_schema", schema: ITINERARY_SCHEMA } },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      systemInstruction: { parts: [{ text: system }] },
+      generationConfig: {
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
+        responseSchema: ITINERARY_SCHEMA,
+      },
     }).then(function (parsed) {
       var start = new Date(trip.startDate + "T00:00:00");
       return (parsed.days || []).map(function (day, i) {
@@ -195,10 +218,13 @@ window.TP_AI = (function () {
     var user = tripContext(trip) + "\n\nTrip length: " + dayCount + " day(s).";
 
     return structuredCall({
-      max_tokens: 2048,
-      system: system,
-      messages: [{ role: "user", content: user }],
-      output_config: { format: { type: "json_schema", schema: PACKING_SCHEMA } },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      systemInstruction: { parts: [{ text: system }] },
+      generationConfig: {
+        maxOutputTokens: 4096,
+        responseMimeType: "application/json",
+        responseSchema: PACKING_SCHEMA,
+      },
     }).then(function (parsed) {
       return (parsed.items || []).map(function (item) {
         return { category: item.category, text: item.text };
@@ -208,8 +234,8 @@ window.TP_AI = (function () {
 
   return {
     MODEL: MODEL,
-    getWorkerUrl: getWorkerUrl,
-    setWorkerUrl: setWorkerUrl,
+    getApiKey: getApiKey,
+    setApiKey: setApiKey,
     isConfigured: isConfigured,
     testConnection: testConnection,
     generateItinerary: generateItinerary,
