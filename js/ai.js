@@ -20,7 +20,7 @@ window.TP_AI = (function () {
   "use strict";
 
   var KEY_API_KEY = "tp_ai_api_key";
-  var MODEL = "gemini-2.5-flash";
+  var MODEL = "gemini-3.7-flash"; // gemini-2.5-flash was retired for new API keys; 3.7 is its current successor
   var API_URL = "https://generativelanguage.googleapis.com/v1beta/models/" + MODEL + ":generateContent";
 
   function getApiKey() {
@@ -91,6 +91,31 @@ window.TP_AI = (function () {
     });
   }
 
+  // Calls with responseSchema for the best-conformance result; if that
+  // specific request fails (e.g. a schema-format quirk), retries once with
+  // just responseMimeType + a plain-text shape description instead of
+  // giving up straight to the rule-based fallback.
+  function generateStructured(system, user, schema, shapeHint, maxOutputTokens) {
+    return structuredCall({
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      systemInstruction: { parts: [{ text: system }] },
+      generationConfig: {
+        maxOutputTokens: maxOutputTokens,
+        responseMimeType: "application/json",
+        responseSchema: schema,
+      },
+    }).catch(function () {
+      return structuredCall({
+        contents: [{ role: "user", parts: [{ text: user }] }],
+        systemInstruction: { parts: [{ text: system + "\n\n" + shapeHint }] },
+        generationConfig: {
+          maxOutputTokens: maxOutputTokens,
+          responseMimeType: "application/json",
+        },
+      });
+    });
+  }
+
   function testConnection() {
     return rawCall({
       contents: [{ role: "user", parts: [{ text: "Reply with only the single word OK." }] }],
@@ -116,37 +141,32 @@ window.TP_AI = (function () {
     ].join("\n");
   }
 
-  // Gemini's responseSchema is a restricted subset of OpenAPI 3.0's Schema
-  // object: "type" values are the capitalized Type enum (STRING, OBJECT,
-  // ARRAY, ...), and "propertyOrdering" (Gemini-specific) hints the key
-  // order in the generated JSON. additionalProperties is not part of this
-  // subset, so it's omitted.
+  // Gemini's responseSchema is a restricted subset of standard JSON Schema
+  // (lowercase "type" values: object/array/string/integer/...).
   var ITINERARY_SCHEMA = {
-    type: "OBJECT",
+    type: "object",
     properties: {
       days: {
-        type: "ARRAY",
+        type: "array",
         items: {
-          type: "OBJECT",
+          type: "object",
           properties: {
-            dayNumber: { type: "INTEGER" },
+            dayNumber: { type: "integer" },
             blocks: {
-              type: "ARRAY",
+              type: "array",
               items: {
-                type: "OBJECT",
+                type: "object",
                 properties: {
-                  time: { type: "STRING", enum: ["morning", "afternoon", "evening"] },
-                  title: { type: "STRING" },
-                  desc: { type: "STRING" },
-                  cost: { type: "STRING", enum: ["free", "low", "mid", "high"] },
+                  time: { type: "string", enum: ["morning", "afternoon", "evening"] },
+                  title: { type: "string" },
+                  desc: { type: "string" },
+                  cost: { type: "string", enum: ["free", "low", "mid", "high"] },
                 },
                 required: ["time", "title", "desc", "cost"],
-                propertyOrdering: ["time", "title", "desc", "cost"],
               },
             },
           },
           required: ["dayNumber", "blocks"],
-          propertyOrdering: ["dayNumber", "blocks"],
         },
       },
     },
@@ -154,18 +174,17 @@ window.TP_AI = (function () {
   };
 
   var PACKING_SCHEMA = {
-    type: "OBJECT",
+    type: "object",
     properties: {
       items: {
-        type: "ARRAY",
+        type: "array",
         items: {
-          type: "OBJECT",
+          type: "object",
           properties: {
-            category: { type: "STRING" },
-            text: { type: "STRING" },
+            category: { type: "string" },
+            text: { type: "string" },
           },
           required: ["category", "text"],
-          propertyOrdering: ["category", "text"],
         },
       },
     },
@@ -186,15 +205,12 @@ window.TP_AI = (function () {
       tripContext(trip) +
       "\n\nGenerate a " + dayCount + "-day itinerary starting " + trip.startDate + ".";
 
-    return structuredCall({
-      contents: [{ role: "user", parts: [{ text: user }] }],
-      systemInstruction: { parts: [{ text: system }] },
-      generationConfig: {
-        maxOutputTokens: 8192,
-        responseMimeType: "application/json",
-        responseSchema: ITINERARY_SCHEMA,
-      },
-    }).then(function (parsed) {
+    var shapeHint =
+      'Respond with ONLY raw JSON (no markdown fences) matching exactly: ' +
+      '{"days":[{"dayNumber":<int>,"blocks":[{"time":"morning|afternoon|evening",' +
+      '"title":"<string>","desc":"<string>","cost":"free|low|mid|high"}]}]}';
+
+    return generateStructured(system, user, ITINERARY_SCHEMA, shapeHint, 8192).then(function (parsed) {
       var start = new Date(trip.startDate + "T00:00:00");
       return (parsed.days || []).map(function (day, i) {
         var date = new Date(start.getTime() + i * 86400000);
@@ -216,16 +232,11 @@ window.TP_AI = (function () {
       "every item should be genuinely relevant to this trip. " +
       "Output must match the provided JSON schema exactly.";
     var user = tripContext(trip) + "\n\nTrip length: " + dayCount + " day(s).";
+    var shapeHint =
+      'Respond with ONLY raw JSON (no markdown fences) matching exactly: ' +
+      '{"items":[{"category":"<string>","text":"<string>"}]}';
 
-    return structuredCall({
-      contents: [{ role: "user", parts: [{ text: user }] }],
-      systemInstruction: { parts: [{ text: system }] },
-      generationConfig: {
-        maxOutputTokens: 4096,
-        responseMimeType: "application/json",
-        responseSchema: PACKING_SCHEMA,
-      },
-    }).then(function (parsed) {
+    return generateStructured(system, user, PACKING_SCHEMA, shapeHint, 4096).then(function (parsed) {
       return (parsed.items || []).map(function (item) {
         return { category: item.category, text: item.text };
       });
